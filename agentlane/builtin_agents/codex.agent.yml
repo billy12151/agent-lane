@@ -1,0 +1,9 @@
+id: codex
+display_name: Codex CLI
+category: coding
+description: OpenAI autonomous coding harness
+runtime:
+  command: [codex, exec, -]
+detect:
+  install_hint: Install the Codex CLI and authenticate it before use.
+capabilities: [code_generation, code_review, test_generation, refactoring]

@@ -1,0 +1,9 @@
+id: gemini-cli
+display_name: Gemini CLI
+category: coding
+description: Google Gemini command-line agent harness
+runtime:
+  command: [gemini]
+detect:
+  install_hint: Install Gemini CLI and authenticate it before use.
+capabilities: [code_generation, documentation, test_generation]

@@ -1,0 +1,19 @@
+name: cross-review
+version: 1
+defaults:
+  timeout: 300
+  retry: 1
+steps:
+  - id: extract
+    agent: claude-code
+    prompt: Extract the requirements and assumptions from the input.
+    output:
+      format: markdown
+  - id: review
+    agent: codex
+    prompt: |
+      Independently review this extraction and identify contradictions:
+      {steps:extract}
+    depends_on: [extract]
+    output:
+      format: markdown

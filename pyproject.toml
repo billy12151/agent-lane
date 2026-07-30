@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentlane"
+version = "0.1.0a1"
+description = "Declarative multi-agent CLI workflow orchestration"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{name = "Billy"}]
+keywords = ["agent", "orchestration", "workflow", "cli", "multi-agent"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = [
+  "PyYAML>=6.0",
+  "click>=8.1",
+  "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5.0",
+  "build>=1.2",
+  "mypy>=1.10",
+  "ruff>=0.8",
+  "twine>=5.0",
+  "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+agentlane = "agentlane.cli.main:entrypoint"
+
+[tool.setuptools.package-data]
+agentlane = ["py.typed", "schema/*.json", "builtin_flows/*.yml", "builtin_agents/*.agent.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "--strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["agentlane"]
+omit = ["agentlane/cli/__init__.py", "agentlane/core/*/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["agentlane"]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_ignores = true
+ignore_missing_imports = true

@@ -1,0 +1,6 @@
+name: my-flow
+version: 1
+steps:
+  - id: first-step
+    agent: codex
+    prompt: Describe the task here.

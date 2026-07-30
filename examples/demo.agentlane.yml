@@ -1,0 +1,15 @@
+name: demo
+version: 1
+defaults:
+  timeout: 60
+  retry: 1
+steps:
+  - id: draft
+    agent: codex
+    prompt: Draft a concise implementation plan.
+  - id: review
+    agent: claude-code
+    prompt: |
+      Review the following plan independently:
+      {steps:draft}
+    depends_on: [draft]

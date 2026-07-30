@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentlane.dev/schema/flow-schema.json",
+  "title": "AgentLane Flow",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "steps"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1, "default": 1},
+    "description": {"type": "string"},
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace": {"type": "string", "minLength": 1, "default": "default"}
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": {"type": "integer", "minimum": 1, "default": 300},
+        "retry": {"type": "integer", "minimum": 0, "default": 1},
+        "max_visits": {"type": "integer", "minimum": 1, "default": 3},
+        "fail_fast": {"type": "boolean", "default": false}
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/step"}
+    }
+  },
+  "$defs": {
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {"enum": ["text", "json", "markdown"], "default": "text"},
+        "schema": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["string", "integer", "number", "boolean", "array", "object", "null"]
+          }
+        }
+      }
+    },
+    "gateOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "action"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "action": {"enum": ["next_step", "goto_step", "terminate"]},
+        "target": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "goto_step"}}},
+          "then": {"required": ["target"]}
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "type": {"enum": ["agent", "human_gate"], "default": "agent"},
+        "agent": {"type": "string", "minLength": 1},
+        "prompt": {"type": "string"},
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        },
+        "timeout": {"type": "integer", "minimum": 1},
+        "retry": {"type": "integer", "minimum": 0},
+        "max_visits": {"type": "integer", "minimum": 1},
+        "group": {"type": "string", "minLength": 1},
+        "terminal": {"type": "boolean"},
+        "message": {"type": "string"},
+        "output": {"$ref": "#/$defs/output"},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/gateOption"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "human_gate"}}, "required": ["type"]},
+          "then": {"required": ["options"]},
+          "else": {"required": ["agent"]}
+        }
+      ]
+    }
+  }
+}

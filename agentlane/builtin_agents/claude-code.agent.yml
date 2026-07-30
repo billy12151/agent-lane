@@ -1,0 +1,9 @@
+id: claude-code
+display_name: Claude Code
+category: coding
+description: Anthropic autonomous coding harness
+runtime:
+  command: [claude, -p]
+detect:
+  install_hint: Install Claude Code and authenticate it before use.
+capabilities: [code_generation, code_review, architecture_design, refactoring]

@@ -1,0 +1,23 @@
+state:
+  file: ~/.agentlane/runs.json
+
+logs:
+  dir: ~/.agentlane/logs
+
+flows:
+  dir: ~/.agentlane/flows
+
+agents:
+  dir: ~/.agentlane/agents
+  commands:
+    codex: [codex, exec, -]
+    claude-code: [claude, -p]
+
+memory:
+  enabled: false
+  workspace: default
+
+cleanup:
+  auto_prune: false
+  keep_days: 7
+  keep_failed: true

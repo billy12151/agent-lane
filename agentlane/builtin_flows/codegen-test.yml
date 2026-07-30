@@ -1,0 +1,26 @@
+name: codegen-and-test
+version: 1
+description: Generate an implementation with one harness and review its tests with another.
+defaults:
+  timeout: 300
+  retry: 1
+steps:
+  - id: generate-code
+    agent: claude-code
+    prompt: |
+      Implement the requested change in the current workspace. Explain the files changed
+      and the validation you performed.
+    output:
+      format: markdown
+  - id: generate-tests
+    agent: codex
+    prompt: |
+      Independently inspect the implementation below and add tests that expose missed
+      edge cases. Run the relevant test suite before reporting.
+
+      Implementation report:
+      {steps:generate-code}
+    depends_on: [generate-code]
+    output:
+      format: markdown
+    terminal: true
