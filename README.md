@@ -146,6 +146,24 @@ Prompts are sent to the configured process on standard input. Commands use direc
 execution, not a shell; shell expansion and pipelines are therefore not implicit. User agent specs
 can also be placed in `~/.agentlane/agents/*.agent.yml` and override built-in IDs.
 
+### Autonomous execution flags
+
+The built-in agent specs ship with the autonomous-execution flags each harness needs to be useful
+inside a non-interactive flow:
+
+| harness | flags | why |
+| --- | --- | --- |
+| `codex` | `--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check` | skip approval prompts; allow running outside a git repo; prompt via stdin (`-`) |
+| `claude-code` | `--dangerously-skip-permissions` | bypass per-tool approval so the agent can read files / run Bash autonomously |
+| `gemini-cli` | `--yolo --skip-trust -p ""` | auto-approve all tool calls; skip the workspace-trust prompt; read prompt from stdin |
+
+Without these flags the agent can only react to the literal prompt text — it cannot read your files
+or run commands on its own, which collapses the flow into plain prompt routing. **These flags grant
+the agent full, unsandboxed control over the workspace.** Only run flows against directories you
+trust, and never pass untrusted input directly into a flow prompt. If a flag is rejected by your
+installed CLI version, override the command in `~/.agentlane/config.yml` (see
+`examples/config.example.yml`).
+
 ## Gates and recovery
 
 Interactive execution prompts at a human gate. In automation, `--non-interactive` persists the run

@@ -10,8 +10,15 @@ flows:
 agents:
   dir: ~/.agentlane/agents
   commands:
-    codex: [codex, exec, -]
-    claude-code: [claude, -p]
+    # The autonomous-execution flags below are what make a harness actually
+    # useful inside a non-interactive flow: they skip per-action approval
+    # prompts (which would otherwise stall forever) and let the agent read
+    # files / run shell commands on its own. They grant the agent full,
+    # unsandboxed control over the workspace, so only run flows against
+    # directories you trust. Flags verified 2026-07-30 via each CLI's --help.
+    codex: [codex, exec, --dangerously-bypass-approvals-and-sandbox, --skip-git-repo-check, -]
+    claude-code: [claude, -p, --dangerously-skip-permissions]
+    gemini-cli: [gemini, --yolo, --skip-trust, -p, ""]
 
 memory:
   enabled: false

@@ -100,7 +100,7 @@ def load_config(path: str | Path | None = None) -> AgentLaneConfig:
         if isinstance(command, str) and not command.strip():
             raise FlowValidationError(f"agent {name} command cannot be empty")
         if isinstance(command, list) and (
-            not command or any(not isinstance(item, str) or not item for item in command)
+            not command or any(not isinstance(item, str) for item in command)
         ):
             raise FlowValidationError(f"agent {name} command list must contain strings")
         normalized_agents[name] = command

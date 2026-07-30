@@ -80,7 +80,7 @@ def _parse_spec(path: Path) -> AgentSpec:
     if isinstance(command, str) and not command.strip():
         raise FlowValidationError(f"agent spec command cannot be empty: {path}")
     if isinstance(command, list) and (
-        not command or any(not isinstance(item, str) or not item for item in command)
+        not command or any(not isinstance(item, str) for item in command)
     ):
         raise FlowValidationError(f"agent spec command must contain strings: {path}")
     capabilities = value.get("capabilities")

@@ -2,8 +2,15 @@ id: claude-code
 display_name: Claude Code
 category: coding
 description: Anthropic autonomous coding harness
+# `-p/--print` is the non-interactive pipe mode (prompt is read from stdin).
+# `--dangerously-skip-permissions` bypasses every per-tool approval prompt so
+# the agent can read files / run Bash autonomously; without it the run would
+# stall waiting for a human that never answers in non-interactive mode.
+# This grants full, unsandboxed control over the workspace — only run flows
+# against directories you trust.
+# Flags verified against `claude --help` (claude CLI installed 2026-07-30).
 runtime:
-  command: [claude, -p]
+  command: [claude, -p, --dangerously-skip-permissions]
 detect:
   install_hint: Install Claude Code and authenticate it before use.
 capabilities: [code_generation, code_review, architecture_design, refactoring]

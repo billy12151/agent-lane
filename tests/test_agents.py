@@ -14,6 +14,11 @@ def test_builtin_agent_specs_are_loadable(tmp_path, monkeypatch):
     assert {"codex", "claude-code", "gemini-cli"} <= set(specs)
     assert specs["codex"].executable == "codex"
     assert "code_review" in specs["codex"].capabilities
+    # Autonomous-execution flags are load-bearing: without them the agent can
+    # only react to literal prompt text and cannot read files / run commands,
+    # collapsing the flow into plain prompt routing. Guard against removal.
+    assert "--dangerously-bypass-approvals-and-sandbox" in specs["codex"].command
+    assert "--dangerously-skip-permissions" in specs["claude-code"].command
 
 
 def test_user_spec_overrides_builtin_and_bad_spec_is_skipped(tmp_path, monkeypatch, caplog):
@@ -83,3 +88,40 @@ def test_malformed_user_agent_specs_are_visible_and_skipped(tmp_path, monkeypatc
 
     assert "broken" not in load_agent_specs(load_config())
     assert "skipping agent spec" in caplog.text
+
+
+def test_empty_string_command_element_is_allowed(tmp_path, monkeypatch):
+    # gemini-cli needs `-p ""` to read the prompt from stdin in headless mode;
+    # an empty-string command element is a legitimate argv value, not malformed.
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    monkeypatch.setenv("AGENTLANE_HOME", str(tmp_path))
+    agents_dir.joinpath("gemini-cli.agent.yml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "gemini-cli",
+                "display_name": "Gemini CLI",
+                "runtime": {"command": ["gemini", "--yolo", "-p", ""]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = load_agent_specs(load_config())["gemini-cli"]
+    assert spec.command == ["gemini", "--yolo", "-p", ""]
+    # and the same leniency must hold for inline config commands
+    tmp_path.joinpath("config.yml").write_text(
+        yaml.safe_dump({"agents": {"commands": {"custom": ["bin", ""]}}}), encoding="utf-8"
+    )
+    assert agent_commands(load_config())["custom"] == ["bin", ""]
+
+
+def test_builtin_gemini_spec_reads_prompt_from_stdin(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTLANE_HOME", str(tmp_path))
+    spec = load_agent_specs(load_config())["gemini-cli"]
+    # The empty `-p ""` arg is what makes gemini take the prompt from stdin
+    # (agentlane feeds prompts via stdin). Guard it against accidental removal.
+    assert "-p" in spec.command
+    p_index = spec.command.index("-p")
+    assert spec.command[p_index + 1] == ""
+    # autonomous-execution flag must be present or the agent cannot act
+    assert "--yolo" in spec.command

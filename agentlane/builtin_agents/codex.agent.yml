@@ -2,8 +2,14 @@ id: codex
 display_name: Codex CLI
 category: coding
 description: OpenAI autonomous coding harness
+# Command reads the prompt from stdin (`-`). The bypass flags let the agent
+# read/write files and run shell commands without per-action approval prompts;
+# agentlane runs non-interactively, so nothing would be there to approve them.
+# These flags are equivalent to running the agent with full, unsandboxed
+# control over the workspace — only run flows against directories you trust.
+# Flags verified against `codex exec --help` (codex CLI installed 2026-07-30).
 runtime:
-  command: [codex, exec, -]
+  command: [codex, exec, --dangerously-bypass-approvals-and-sandbox, --skip-git-repo-check, -]
 detect:
   install_hint: Install the Codex CLI and authenticate it before use.
 capabilities: [code_generation, code_review, test_generation, refactoring]

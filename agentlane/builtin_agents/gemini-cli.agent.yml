@@ -2,8 +2,17 @@ id: gemini-cli
 display_name: Gemini CLI
 category: coding
 description: Google Gemini command-line agent harness
+# `-p ""` selects non-interactive (headless) mode; the empty prompt string makes
+# Gemini read the actual prompt from stdin (agentlane feeds prompts via stdin).
+# `--yolo` auto-approves all tool calls so the agent can read/write files and run
+# commands autonomously. `--skip-trust` bypasses the interactive workspace-trust
+# prompt that would otherwise stall non-interactive runs in untrusted dirs.
+# This grants full, unsandboxed control over the workspace — only run flows
+# against directories you trust.
+# Flags verified via `gemini --help` (npm @google/gemini-cli, 2026-07-30).
+# Auth: requires GEMINI_API_KEY (or Vertex/GOOGLE_GENAI_USE_GCA) in the env.
 runtime:
-  command: [gemini]
+  command: [gemini, --yolo, --skip-trust, -p, ""]
 detect:
-  install_hint: Install Gemini CLI and authenticate it before use.
+  install_hint: Install Gemini CLI (npm i -g @google/gemini-cli) and authenticate it before use.
 capabilities: [code_generation, documentation, test_generation]
