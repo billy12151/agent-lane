@@ -60,6 +60,11 @@ agentlane flow validate ~/.agentlane/flows/my-review.agentlane.yml
 agentlane flow visualize ~/.agentlane/flows/my-review.agentlane.yml
 ```
 
+Built-in templates: `blank`, `cross-review` (extract → review), `cross-review-trio`
+(one harness drafts, **two different harnesses review the same draft in parallel**, a
+third pass synthesizes consensus / divergence / blind spots — the core "complementary
+viewpoints" pattern), and `codegen-test` (implement → review tests).
+
 Run it and inspect the durable record:
 
 ```bash

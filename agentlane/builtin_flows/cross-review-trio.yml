@@ -1,0 +1,78 @@
+name: cross-review-trio
+version: 1
+description: |
+  Three-way cross review — the core "complementary viewpoints" pattern. One
+  harness drafts; two *different* harnesses independently review the same draft
+  in parallel; a third pass synthesizes where they agree, disagree, and what
+  both missed. The value is the divergence between independent viewpoints, not
+  speed: a single agent cannot find its own blind spots, so the two reviewers
+  must not see each other's output, only the shared draft.
+defaults:
+  timeout: 300
+  retry: 1
+  max_visits: 3
+steps:
+  - id: draft
+    agent: claude-code
+    prompt: |
+      Produce the work requested in the surrounding task context. Read the
+      relevant files in the current workspace and output the result (design,
+      code, document, or analysis). Be concrete and self-contained — the next
+      steps review this output without seeing your workspace.
+    output:
+      format: markdown
+
+  - id: review-a
+    agent: codex
+    prompt: |
+      You are reviewer A. Independently review the work below for correctness,
+      completeness, and risks. Read the relevant files in the current workspace
+      yourself — do not trust the author's summary. List concrete problems with
+      file/line references. You are the ONLY reviewer at this stage; another
+      reviewer is looking at the same work in parallel and you must not be
+      influenced by them.
+
+      Work under review:
+      {steps:draft}
+    depends_on: [draft]
+    output:
+      format: markdown
+
+  - id: review-b
+    agent: gemini-cli
+    prompt: |
+      You are reviewer B. Independently review the work below for correctness,
+      completeness, and risks. Read the relevant files in the current workspace
+      yourself — do not trust the author's summary. List concrete problems with
+      file/line references. You are the ONLY reviewer at this stage; another
+      reviewer is looking at the same work in parallel and you must not be
+      influenced by them.
+
+      Work under review:
+      {steps:draft}
+    depends_on: [draft]
+    output:
+      format: markdown
+
+  - id: synthesize
+    agent: claude-code
+    prompt: |
+      Two independent reviewers (A and B) each reviewed the same draft without
+      seeing each other's work. Re-read the draft and the workspace, then
+      synthesize their findings:
+
+      1. CONSENSUS — problems BOTH reviewers found (highest confidence).
+      2. DIVERGENCE — where they disagree, and your judgment on who is right.
+      3. BLIND SPOTS — problems NEITHER reviewer caught but you can see.
+
+      Draft:
+      {steps:draft}
+
+      Reviewer A:
+      {steps:review-a}
+
+      Reviewer B:
+      {steps:review-b}
+    depends_on: [review-a, review-b]
+    output:
+      format: markdown

@@ -38,6 +38,7 @@ _BUILTIN_FLOW_DIR = Path(__file__).resolve().parents[1] / "builtin_flows"
 _FLOW_TEMPLATES = {
     "blank": _BUILTIN_FLOW_DIR / "blank.yml",
     "cross-review": _BUILTIN_FLOW_DIR / "cross-review.yml",
+    "cross-review-trio": _BUILTIN_FLOW_DIR / "cross-review-trio.yml",
     "codegen-test": _BUILTIN_FLOW_DIR / "codegen-test.yml",
 }
 

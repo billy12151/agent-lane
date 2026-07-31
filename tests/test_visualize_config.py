@@ -16,6 +16,29 @@ def test_ascii_graph_layers(linear_flow):
     assert "Layer 2: ○ second" in rendered
 
 
+def test_cross_review_trio_template_is_three_layer_parallel():
+    # The trio template is the core "complementary viewpoints" pattern: one
+    # draft, two INDEPENDENT parallel reviewers, then a synthesis. The two
+    # reviewers must depend only on the draft (not on each other) so neither
+    # is influenced by the other's output — that independence is the whole point.
+    from pathlib import Path
+
+    from agentlane.core.engine import FlowEngine, load_flow
+
+    root = Path(__file__).resolve().parents[1]
+    path = root / "agentlane" / "builtin_flows" / "cross-review-trio.yml"
+    flow = load_flow(path)
+    errors = FlowEngine().validate(flow)
+    assert errors == []
+    layers = FlowEngine().layered_order(flow)
+    assert layers == [["draft"], ["review-a", "review-b"], ["synthesize"]]
+    by_id = {s.id: s for s in flow.steps}
+    # Reviewers are independent: each depends only on the draft, never on each other.
+    assert by_id["review-a"].depends_on == ["draft"]
+    assert by_id["review-b"].depends_on == ["draft"]
+    assert by_id["synthesize"].depends_on == ["review-a", "review-b"]
+
+
 def test_ascii_and_mermaid_include_run_status(linear_flow):
     store = InMemoryStateStore()
     run_id = store.create_run("linear", ["first", "second"], linear_flow.raw_yaml)
