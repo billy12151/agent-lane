@@ -74,6 +74,21 @@ async def test_shell_timeout_terminates_process():
 
 
 @pytest.mark.asyncio
+async def test_shell_terminate_works_without_process_group_support(monkeypatch):
+    # On Windows os.getpgid/os.killpg do not exist. _terminate must fall back to
+    # process.terminate()/kill() instead of raising AttributeError. Simulate the
+    # absence by nulling the module-level capability handles.
+    import agentlane.core.adapters.shell as shell_module
+
+    monkeypatch.setattr(shell_module, "_GETPGID", None)
+    monkeypatch.setattr(shell_module, "_KILLPG", None)
+    adapter = ShellAgentAdapter({"slow": [sys.executable, "-c", "import time; time.sleep(5)"]})
+    result = await adapter.execute("slow", "", timeout=0.01)
+    assert not result.ok
+    assert result.exit_code == AgentExitCode.TIMEOUT
+
+
+@pytest.mark.asyncio
 async def test_shell_cancellation_does_not_hang():
     adapter = ShellAgentAdapter({"slow": [sys.executable, "-c", "import time; time.sleep(5)"]})
     task = asyncio.create_task(adapter.execute("slow", ""))

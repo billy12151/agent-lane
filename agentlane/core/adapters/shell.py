@@ -7,7 +7,7 @@ import os
 import shlex
 import signal
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,12 @@ from typing import Any
 from ..errors import UnknownAgentError
 from ..result import AgentExitCode, AgentResult
 from .base import AgentAdapter
+
+# POSIX-only APIs used to kill the agent's whole process group. On Windows
+# these attributes are absent, so we fall back to terminating just the child.
+# Typed as Optional callables so mypy understands the None-guarded call sites.
+_GETPGID: Callable[[int], int] | None = getattr(os, "getpgid", None)
+_KILLPG: Callable[[int, int], None] | None = getattr(os, "killpg", None)
 
 
 class ShellAgentAdapter(AgentAdapter):
@@ -46,6 +52,10 @@ class ShellAgentAdapter(AgentAdapter):
         started = time.monotonic()
         env = os.environ.copy()
         env.update(self.environment)
+        # start_new_session puts the child in its own process group on POSIX so
+        # we can signal the whole group (and the agent's own subprocesses) on
+        # timeout. It is a no-op keyword on Windows, where we terminate only the
+        # direct child via process.kill().
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(cwd) if cwd is not None else None,
@@ -53,7 +63,7 @@ class ShellAgentAdapter(AgentAdapter):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
+            start_new_session=_GETPGID is not None,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -84,10 +94,12 @@ class ShellAgentAdapter(AgentAdapter):
 
     @staticmethod
     def _process_group(process: asyncio.subprocess.Process) -> int | None:
-        """Resolve the child's process group, if it is still alive."""
+        """Resolve the child's process group, if it is alive and the OS supports it."""
 
+        if _GETPGID is None:  # Windows
+            return None
         try:
-            return os.getpgid(process.pid)
+            return _GETPGID(process.pid)
         except (ProcessLookupError, PermissionError):
             return None
 
@@ -95,21 +107,22 @@ class ShellAgentAdapter(AgentAdapter):
     async def _terminate(cls, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        # The child started a new session (start_new_session=True), so it leads
-        # its own process group. Signal the whole group so grandchildren the
-        # agent spawned die with it instead of being orphaned.
+        # On POSIX the child started a new session (start_new_session=True), so
+        # it leads its own process group. Signal the whole group so grandchildren
+        # the agent spawned die with it instead of being orphaned. On Windows we
+        # can only terminate the direct child.
         pgid = cls._process_group(process)
-        if pgid is not None:
+        if pgid is not None and _KILLPG is not None:
             with suppress(ProcessLookupError, PermissionError):
-                os.killpg(pgid, signal.SIGTERM)
+                _KILLPG(pgid, signal.SIGTERM)
         else:
             process.terminate()
         try:
             await asyncio.wait_for(process.wait(), timeout=2)
         except asyncio.TimeoutError:
-            if pgid is not None:
+            if pgid is not None and _KILLPG is not None:
                 with suppress(ProcessLookupError, PermissionError):
-                    os.killpg(pgid, signal.SIGKILL)
+                    _KILLPG(pgid, signal.SIGKILL)
             else:
                 process.kill()
             await process.wait()

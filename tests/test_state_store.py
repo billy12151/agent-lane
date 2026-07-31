@@ -266,3 +266,18 @@ def test_run_lease_is_exclusive_per_run(store):
     # The lease is released when the block exits, so it can be reacquired.
     with store.run_lease(run_id):
         pass
+
+
+def test_run_lease_cleans_up_lock_file(tmp_path):
+    # Per-run lock files must not accumulate forever in the state dir; each
+    # lease removes its own lock file on release.
+    store = JsonFileStateStore(tmp_path / "runs.json")
+    run_id = store.create_run("flow", ["a"], "yaml")
+    lock_path = tmp_path / f".runs.json.{run_id}.lock"
+    with store.run_lease(run_id):
+        pass
+    assert not lock_path.exists()
+    # And acquiring again works (file is recreated then cleaned again).
+    with store.run_lease(run_id):
+        pass
+    assert not lock_path.exists()

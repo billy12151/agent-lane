@@ -157,6 +157,64 @@ steps:
 
 
 @pytest.mark.asyncio
+async def test_contract_violation_feeds_back_into_retry_prompt():
+    # The whole point of retrying a contract violation is giving the agent the
+    # information it needs to fix its output. A blind re-roll would most likely
+    # reproduce the same broken answer. Verify the violation text is appended to
+    # the prompt sent on the next attempt.
+    flow = parse_flow("""name: contract
+defaults: {retry: 2}
+steps:
+  - id: a
+    agent: x
+    prompt: ORIGINAL-PROMPT
+    output:
+      format: json
+      schema: {name: string}
+""")
+
+    def answers(agent, prompt):
+        if "Contract violations" in prompt:
+            return '{"name": "fixed"}'
+        return "not-json"
+
+    adapter = StaticAgentAdapter({"x": answers})
+    run = await StepRunner(adapter=adapter).run(flow)
+    assert run.status == FlowStatus.COMPLETED
+    # First attempt gets the bare prompt, second gets the feedback appended.
+    assert adapter.calls[0][1] == "ORIGINAL-PROMPT"
+    assert "Contract violations" in adapter.calls[1][1]
+    assert "ORIGINAL-PROMPT" in adapter.calls[1][1]
+
+
+@pytest.mark.asyncio
+async def test_injected_worker_pool_is_used_by_resolvers():
+    # A custom WorkerPool must be the one executing resolver calls, not the
+    # process-wide default. Drive it by having a step reference an env var; the
+    # resolver dispatches through run_sync_with_timeout -> pool.submit.
+    import os
+
+    from agentlane.core.async_utils import WorkerPool
+
+    custom = WorkerPool(max_workers=1, name="test-pool")
+    flow = parse_flow("""name: envref
+steps:
+  - id: a
+    agent: x
+    prompt: "val={env:AGENTLANE_TEST_POOL}"
+""")
+    os.environ["AGENTLANE_TEST_POOL"] = "injected"
+    try:
+        adapter = StaticAgentAdapter({"x": "ok"})
+        await StepRunner(adapter=adapter, worker_pool=custom).run(flow)
+    finally:
+        del os.environ["AGENTLANE_TEST_POOL"]
+    # The custom pool lazily started its single worker thread.
+    assert custom._started is True
+    assert custom._max_workers == 1
+
+
+@pytest.mark.asyncio
 async def test_adapter_exception_is_normalized_and_step_not_left_running():
     async def explode(agent, prompt):
         raise RuntimeError("transport exploded")

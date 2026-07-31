@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -204,5 +204,10 @@ class JsonFileStateStore(InMemoryStateStore):
             if acquired:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             handle.close()
+            # Remove the per-run lock file so long-lived state dirs do not
+            # accumulate one stale .lock per resume. Safe because we hold no
+            # fd to it anymore; a concurrent acquirer simply recreates it.
+            with suppress(FileNotFoundError, OSError):
+                lock_path.unlink()
             with self._lock:
                 self._active_runs.discard(run_id)

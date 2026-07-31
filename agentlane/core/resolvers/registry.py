@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from ..async_utils import run_sync_with_timeout
+from ..async_utils import WorkerPool, run_sync_with_timeout
 from .base import ContextResolver, ResolveContext, ResolveResult
 from .env import EnvResolver
 from .memory import MemoryResolver
@@ -16,8 +16,9 @@ _TOKEN = re.compile(r"\{([^{}]+)\}")
 
 
 class ResolverRegistry:
-    def __init__(self):
+    def __init__(self, *, worker_pool: WorkerPool | None = None):
         self._resolvers: dict[str, ContextResolver] = {}
+        self._worker_pool = worker_pool
 
     def register(self, resolver: ContextResolver) -> ResolverRegistry:
         self._resolvers[resolver.prefix] = resolver
@@ -47,7 +48,9 @@ class ResolverRegistry:
         if resolver is None:
             return ResolveResult("", token, True, error=f"unknown resolver prefix: {prefix}")
         try:
-            return await run_sync_with_timeout(resolver.resolve, key, context, timeout=timeout)
+            return await run_sync_with_timeout(
+                resolver.resolve, key, context, timeout=timeout, pool=self._worker_pool
+            )
         except asyncio.TimeoutError:
             return ResolveResult(
                 "", token, True, timed_out=True, error=f"resolver timed out: {prefix}"
@@ -85,9 +88,9 @@ class ResolverRegistry:
         return "".join(parts), list(results)
 
 
-def default_registry() -> ResolverRegistry:
+def default_registry(*, worker_pool: WorkerPool | None = None) -> ResolverRegistry:
     return (
-        ResolverRegistry()
+        ResolverRegistry(worker_pool=worker_pool)
         .register(StepsResolver())
         .register(MemoryResolver())
         .register(SecretResolver())

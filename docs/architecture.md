@@ -36,10 +36,13 @@ inter-process lock before every mutation, writes a temporary file, fsyncs it, an
 replaces the state file. Non-concurrent stores are serialized by the runner. `TaskFlowStateStore`
 adapts an injected host client and rolls local state back if the remote save fails.
 
-Resolvers are synchronous extension contracts dispatched through daemon threads with bounded
-waits. A timed-out extension cannot block event-loop shutdown. Hooks and observability sinks are
-isolated composites: their failures are logged and cannot silently convert successful workflow
-work into a failed run.
+Resolvers are synchronous extension contracts dispatched through a bounded pool of daemon threads
+with bounded waits. The pool caps how many extensions run at once so one prompt cannot spawn an
+unbounded number of threads; a timed-out extension cannot block event-loop shutdown. The pool is
+an injectable `WorkerPool`; `StepRunner` and `ResolverRegistry` accept one and fall back to a
+process-wide default, so a host can size or replace it and tests can isolate it. Hooks and
+observability sinks are isolated composites: their failures are logged and cannot silently convert
+successful workflow work into a failed run.
 
 ## Runtime invariants
 

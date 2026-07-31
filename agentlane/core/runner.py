@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import AgentAdapter
-from .async_utils import run_sync_with_timeout
+from .async_utils import WorkerPool, run_sync_with_timeout
 from .engine import FlowEngine, dump_flow, parse_flow
 from .errors import (
     FlowExecutionError,
@@ -86,6 +86,7 @@ class StepRunner:
         cwd: str | Path | None = None,
         resolver_timeout: float = 10,
         memory_timeout: float = 10,
+        worker_pool: WorkerPool | None = None,
     ):
         if adapter is None:
             raise ValueError("a real AgentAdapter is required")
@@ -102,7 +103,8 @@ class StepRunner:
             if isinstance(configured_sink, CompositeSink)
             else CompositeSink([configured_sink])
         )
-        self.registry = resolver_registry or default_registry()
+        self.worker_pool = worker_pool
+        self.registry = resolver_registry or default_registry(worker_pool=worker_pool)
         self.memory_client = memory_client
         self.secret_provider = secret_provider
         self.gate_driver = gate_driver or PauseGateDriver()
@@ -316,18 +318,26 @@ class StepRunner:
         self.sink.on_step_start(run_id, step.id)
         await self.hook.before_step(run_id, step, self._require_run(run_id))
         try:
-            prompt = await self._render_prompt(flow, step, run_id)
+            base_prompt = await self._render_prompt(flow, step, run_id)
             retry_budget = step.retry if step.retry is not None else flow.defaults_retry
             result: AgentResult | None = None
             violations: list[str] = []
             attempts = 0
             while attempts <= retry_budget:
                 attempts += 1
+                # On a contract-violating attempt, append the violation feedback
+                # to the next attempt's prompt so the agent has a chance to fix
+                # its output instead of blindly rerolling the same broken answer.
+                effective_prompt = (
+                    self._with_contract_feedback(base_prompt, violations)
+                    if violations
+                    else base_prompt
+                )
                 started = time.monotonic()
                 try:
                     result = await self.adapter.execute(
                         step.agent,
-                        prompt,
+                        effective_prompt,
                         timeout=step.timeout or flow.defaults_timeout,
                         cwd=self.cwd,
                     )
@@ -522,7 +532,9 @@ class StepRunner:
             raise AttributeError("memory client has no write method")
 
         try:
-            response = await run_sync_with_timeout(write, timeout=self.memory_timeout)
+            response = await run_sync_with_timeout(
+                write, timeout=self.memory_timeout, pool=self.worker_pool
+            )
             memory_id = self._extract_memory_id(response)
             if memory_id is not None:
                 self.store.set_context(run_id, f"{step.id}.memory_id", memory_id)
@@ -579,6 +591,21 @@ class StepRunner:
             with suppress(TypeError, ValueError, json.JSONDecodeError):
                 return replace(result, parsed=json.loads(result.output))
         return result
+
+    @staticmethod
+    def _with_contract_feedback(prompt: str, violations: list[str]) -> str:
+        """Append contract-violation feedback so a retry can fix the output.
+
+        Without this the retry would resend the identical prompt and the agent
+        would most likely reproduce the same contract-breaking answer.
+        """
+
+        joined = "; ".join(violations)
+        return (
+            f"{prompt}\n\n---\nYour previous attempt for this step violated its output "
+            f"contract and was rejected. Please retry the SAME task and produce output "
+            f"that satisfies the contract. Contract violations: {joined}"
+        )
 
     def retry_step(self, run_id: str, step_id: str) -> FlowRun:
         run = self._require_run(run_id)
