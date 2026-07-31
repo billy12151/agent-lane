@@ -111,7 +111,7 @@ steps:
 
 
 @pytest.mark.asyncio
-async def test_contract_failure_does_not_retry():
+async def test_contract_failure_is_retried_then_fails():
     flow = parse_flow("""name: contract
 defaults: {retry: 3}
 steps:
@@ -125,8 +125,35 @@ steps:
     adapter = StaticAgentAdapter({"x": "not-json"})
     run = await StepRunner(adapter=adapter).run(flow)
     assert run.status == FlowStatus.FAILED
-    assert len(adapter.calls) == 1
+    # Contract violations now retry within the budget (retry=3 -> 4 attempts).
+    assert len(adapter.calls) == 4
+    assert run.steps["a"].retry_count == 3
     assert "valid JSON" in run.steps["a"].error
+
+
+@pytest.mark.asyncio
+async def test_contract_failure_recovers_on_retry():
+    flow = parse_flow("""name: contract
+defaults: {retry: 3}
+steps:
+  - id: a
+    agent: x
+    prompt: go
+    output:
+      format: json
+      schema: {name: string}
+""")
+
+    calls = {"n": 0}
+
+    def answers(agent, prompt):
+        calls["n"] += 1
+        return "not-json" if calls["n"] < 4 else '{"name": "ok"}'
+
+    adapter = StaticAgentAdapter({"x": answers})
+    run = await StepRunner(adapter=adapter).run(flow)
+    assert run.status == FlowStatus.COMPLETED
+    assert run.steps["a"].retry_count == 3
 
 
 @pytest.mark.asyncio

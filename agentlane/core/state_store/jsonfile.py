@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None  # type: ignore[assignment]
 
-from ..errors import StateStoreError
+from ..errors import InvalidResumeError, StateStoreError
 from ..state import FlowRun, FlowRunSummary, FlowStatus
 from .base import run_from_dict, run_to_dict
 from .memory import InMemoryStateStore
@@ -30,11 +30,22 @@ class JsonFileStateStore(InMemoryStateStore):
         self.path = Path(path).expanduser()
         self.lock_path = self.path.with_suffix(self.path.suffix + ".lock")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._cached_sig: tuple[int, int] | None = None
         self._load_file()
 
     def _load_file(self) -> None:
-        if not self.path.exists():
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
             self._runs = {}
+            self._cached_sig = None
+            return
+        # Skip re-parsing when the file is unchanged on disk since the last
+        # load. The runner reads run state on nearly every step transition, so
+        # this avoids repeating json.loads for an unmodified file. A write by
+        # another process changes (mtime, size) and invalidates the cache.
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if signature == self._cached_sig:
             return
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -48,6 +59,7 @@ class JsonFileStateStore(InMemoryStateStore):
             }
         except (KeyError, TypeError, ValueError) as exc:
             raise StateStoreError(f"invalid AgentLane run record in {self.path}: {exc}") from exc
+        self._cached_sig = signature
 
     @contextmanager
     def _file_guard(self, *, exclusive: bool) -> Iterator[None]:
@@ -77,6 +89,8 @@ class JsonFileStateStore(InMemoryStateStore):
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, self.path)
+            stat = self.path.stat()
+            self._cached_sig = (stat.st_mtime_ns, stat.st_size)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
@@ -159,3 +173,36 @@ class JsonFileStateStore(InMemoryStateStore):
             if selected:
                 self._persist()
             return len(selected)
+
+    @contextmanager
+    def run_lease(self, run_id: str) -> Iterator[None]:
+        """Cross-process execution lease via a per-run advisory file lock.
+
+        Combined with the in-process guard inherited from InMemoryStateStore,
+        this prevents two processes (or two interleaved resumes in one process)
+        from driving the same run concurrently and racing on the state file.
+        """
+
+        with self._lock:
+            if run_id in self._active_runs:
+                raise InvalidResumeError(f"run {run_id} is already executing")
+            self._active_runs.add(run_id)
+        lock_path = self.path.parent / f".{self.path.name}.{run_id}.lock"
+        handle = lock_path.open("a+", encoding="utf-8")
+        acquired = False
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except OSError as exc:
+                    raise InvalidResumeError(
+                        f"run {run_id} is already executing in another process"
+                    ) from exc
+            yield
+        finally:
+            if acquired:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+            with self._lock:
+                self._active_runs.discard(run_id)

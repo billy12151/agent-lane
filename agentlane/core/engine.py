@@ -386,33 +386,36 @@ class FlowEngine:
         return layers
 
     def ancestors(self, flow: FlowDefinition) -> dict[str, set[str]]:
-        direct = {step.id: set(step.depends_on) for step in flow.steps}
-        result: dict[str, set[str]] = {step.id: set() for step in flow.steps}
-        changed = True
-        while changed:
-            changed = False
-            for step_id, dependencies in direct.items():
-                expanded = set(dependencies)
-                for dependency in dependencies:
-                    expanded.update(result.get(dependency, set()))
-                if expanded != result[step_id]:
-                    result[step_id] = expanded
-                    changed = True
+        deps = {step.id: list(step.depends_on) for step in flow.steps}
+        result: dict[str, set[str]] = {}
+        for step in flow.steps:
+            seen: set[str] = set()
+            stack = list(deps[step.id])
+            while stack:
+                dep = stack.pop()
+                if dep in seen:
+                    continue
+                seen.add(dep)
+                stack.extend(deps.get(dep, []))
+            result[step.id] = seen
         return result
 
     def descendants(self, flow: FlowDefinition, step_id: str) -> set[str]:
         if step_id not in {step.id for step in flow.steps}:
             raise KeyError(step_id)
+        children: dict[str, list[str]] = {step.id: [] for step in flow.steps}
+        for step in flow.steps:
+            for dep in step.depends_on:
+                if dep in children:
+                    children[dep].append(step.id)
         result: set[str] = set()
-        changed = True
-        while changed:
-            changed = False
-            for step in flow.steps:
-                if step.id in result:
-                    continue
-                if step_id in step.depends_on or any(dep in result for dep in step.depends_on):
-                    result.add(step.id)
-                    changed = True
+        stack = list(children[step_id])
+        while stack:
+            node = stack.pop()
+            if node in result:
+                continue
+            result.add(node)
+            stack.extend(children.get(node, []))
         return result
 
 

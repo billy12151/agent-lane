@@ -83,6 +83,11 @@ def load_config(path: str | Path | None = None) -> AgentLaneConfig:
 
     commands = agents.get("commands")
     if commands is None:
+        # Loose form: agent names defined directly under `agents`. Only `dir` is
+        # reserved, so every other key becomes an agent. This form cannot detect
+        # typos like `dri:` (it is silently accepted as an agent named "dri"),
+        # so prefer the explicit `commands:` mapping above, which reject_unknown
+        # validates.
         commands = {key: value for key, value in agents.items() if key != "dir"}
     if not isinstance(commands, dict):
         raise FlowValidationError("config agents.commands must be a mapping")

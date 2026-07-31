@@ -46,6 +46,10 @@ class StepDefinition:
     depends_on: list[str] = field(default_factory=list)
     timeout: int | None = None
     retry: int | None = None
+    # Caps how many times this step may be entered across the whole run,
+    # including retries and goto loops. reset_step intentionally keeps the
+    # accumulated visit_count, so this is a re-entrancy / deadlock guard rather
+    # than a per-execution attempt limit.
     max_visits: int | None = None
     group: str | None = None
     output: Any = None

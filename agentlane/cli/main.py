@@ -51,6 +51,14 @@ class AgentLaneGroup(click.Group):
 
 
 class InteractiveGateDriver(GateDriver):
+    """Prompt the operator on the terminal at a human gate.
+
+    ``click.prompt`` is a blocking call, so it stalls the event loop while it
+    waits. That is acceptable here because a gate is a flow-level pause point:
+    nothing in the same layer runs concurrently with it, and a human decision
+    cannot be awaited cooperatively anyway.
+    """
+
     async def ask(self, step: StepDefinition) -> GateOption | None:
         console.print(f"[yellow]{step.message or step.id}[/yellow]")
         labels = [option.label for option in step.options]
@@ -153,8 +161,10 @@ def flow() -> None:
 
 @flow.command("validate")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-def validate_command(path: Path) -> None:
+@click.pass_context
+def validate_command(ctx: click.Context, path: Path) -> None:
     definition = load_flow(path)
+    _apply_flow_defaults(definition, _config(ctx))
     resolver_errors = FlowEngine().validate_resolvers(definition, default_registry())
     if resolver_errors:
         raise FlowValidationError("; ".join(resolver_errors))
@@ -397,16 +407,19 @@ def log_command(ctx: click.Context, run_id: str) -> None:
     if not path.exists():
         raise click.ClickException("no logs found")
     found = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        if record.get("run_id") == run_id:
-            click.echo(json.dumps(record, ensure_ascii=False))
-            found = True
+    # Stream line by line instead of loading the whole file, so a long-lived
+    # events log does not have to fit in memory.
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            if record.get("run_id") == run_id:
+                click.echo(json.dumps(record, ensure_ascii=False))
+                found = True
     if not found:
         raise click.ClickException(f"no logs found for run: {run_id}")
 

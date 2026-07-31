@@ -5,9 +5,11 @@ from __future__ import annotations
 import copy
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
-from ..errors import StateStoreError
+from ..errors import InvalidResumeError, StateStoreError
 from ..state import (
     FlowRun,
     FlowRunSummary,
@@ -26,6 +28,21 @@ class InMemoryStateStore(StateStore):
     def __init__(self):
         self._runs: dict[str, FlowRun] = {}
         self._lock = threading.RLock()
+        self._active_runs: set[str] = set()
+
+    @contextmanager
+    def run_lease(self, run_id: str) -> Iterator[None]:
+        """Prevent two interleaved resumes of the same run in one process."""
+
+        with self._lock:
+            if run_id in self._active_runs:
+                raise InvalidResumeError(f"run {run_id} is already executing")
+            self._active_runs.add(run_id)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._active_runs.discard(run_id)
 
     def create_run(self, flow_name: str, steps: list[str], yaml_snapshot: str) -> str:
         with self._lock:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -74,6 +76,17 @@ class StateStore(ABC):
 
     @abstractmethod
     def delete_run(self, run_id: str) -> None: ...
+
+    @contextmanager
+    def run_lease(self, run_id: str) -> Iterator[None]:
+        """Hold an exclusive execution lease for a run while it executes.
+
+        The default is a no-op: single-process in-memory stores rely on the
+        per-call lock. Cross-process stores override this with an OS lock so the
+        same run cannot be resumed concurrently by two processes, which would
+        race on the shared state file.
+        """
+        yield
 
 
 def run_to_dict(run: FlowRun) -> dict[str, Any]:

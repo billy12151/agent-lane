@@ -48,12 +48,19 @@ class ResolverRegistry:
             return ResolveResult("", token, True, error=f"unknown resolver prefix: {prefix}")
         try:
             return await run_sync_with_timeout(resolver.resolve, key, context, timeout=timeout)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             return ResolveResult(
                 "", token, True, timed_out=True, error=f"resolver timed out: {prefix}"
             )
         except Exception as exc:
-            return ResolveResult("", token, True, error=f"resolver failed: {exc}")
+            # Never echo raw exception text for secret references: a custom
+            # provider that embeds the secret value in its error would otherwise
+            # be written to the observability log via on_resolver_missing.
+            if prefix == "secret":
+                error = f"secret resolver failed for {key}"
+            else:
+                error = f"resolver failed: {exc}"
+            return ResolveResult("", token, True, error=error)
 
     async def render(
         self,

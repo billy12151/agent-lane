@@ -44,7 +44,7 @@ class ACPAgentAdapter(AgentAdapter):
 
         try:
             value = await asyncio.wait_for(invoke(), timeout=timeout)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             return AgentResult.failure(
                 f"ACP agent {agent} timed out after {timeout}s",
                 exit_code=AgentExitCode.TIMEOUT,

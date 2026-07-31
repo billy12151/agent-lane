@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agentlane.core.errors import StateStoreError
+from agentlane.core.errors import InvalidResumeError, StateStoreError
 from agentlane.core.state import FlowStatus, GateDecision, StepStatus
 from agentlane.core.state_store import (
     InMemoryStateStore,
@@ -253,3 +253,16 @@ def test_json_store_prune_filters_and_keeps_recent(tmp_path):
     assert store.load_run(failed) is not None
     with pytest.raises(ValueError, match="non-negative"):
         store.prune(keep=-1)
+
+
+def test_run_lease_is_exclusive_per_run(store):
+    run_id = store.create_run("flow", ["a"], "yaml")
+    with (
+        store.run_lease(run_id),
+        pytest.raises(InvalidResumeError, match="already executing"),
+        store.run_lease(run_id),
+    ):
+        pass
+    # The lease is released when the block exits, so it can be reacquired.
+    with store.run_lease(run_id):
+        pass

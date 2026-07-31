@@ -6,7 +6,7 @@ import asyncio
 import json
 import threading
 import time
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -124,6 +124,7 @@ class StepRunner:
         resume_from: str | None = None,
         original_yaml: str | None = None,
     ) -> FlowRun:
+        is_resume = run_id is not None
         if run_id is None:
             if flow is None:
                 raise ValueError("flow is required for a new run")
@@ -163,6 +164,11 @@ class StepRunner:
             )
 
         assert flow is not None
+        lease = self.store.run_lease(run_id) if is_resume else nullcontext()
+        with lease:
+            return await self._execute_loop(flow, run_id)
+
+    async def _execute_loop(self, flow: FlowDefinition, run_id: str) -> FlowRun:
         self.sink.on_flow_start(run_id, flow.name)
         try:
             while True:
@@ -313,6 +319,7 @@ class StepRunner:
             prompt = await self._render_prompt(flow, step, run_id)
             retry_budget = step.retry if step.retry is not None else flow.defaults_retry
             result: AgentResult | None = None
+            violations: list[str] = []
             attempts = 0
             while attempts <= retry_budget:
                 attempts += 1
@@ -328,53 +335,29 @@ class StepRunner:
                     raise
                 except Exception as exc:
                     result = AgentResult.failure(f"adapter raised {type(exc).__name__}: {exc}")
+                    continue
                 if result.duration_ms == 0:
                     result = replace(
                         result, duration_ms=max(1, int((time.monotonic() - started) * 1000))
                     )
-                if result.ok:
+                if not result.ok:
+                    continue
+                # Enforce the output contract inside the retry window so a
+                # well-formed but contract-violating result is retried, not
+                # accepted after a single attempt.
+                result = self._normalize_parsed(step, result)
+                violations = step.output.validate(result) if step.output is not None else []
+                if not violations:
                     break
             assert result is not None
             retry_count = attempts - 1
             if not result.ok:
                 message = result.error or "agent failed"
-                self.store.update_step(
-                    run_id,
-                    step.id,
-                    StepStatus.FAILED,
-                    output=result.output,
-                    error=message,
-                    retry_count=retry_count,
-                    duration_ms=result.duration_ms,
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
-                )
-                self.sink.on_error(run_id, step.id, message)
-                await self.hook.on_error(run_id, step, message)
+                await self._fail_step(step, run_id, result, message, retry_count)
                 raise _StepFailed(step.id, message)
-
-            if step.output is not None and step.output.format == "json" and result.parsed is None:
-                if isinstance(result.output, (dict, list)):
-                    result = replace(result, parsed=result.output)
-                else:
-                    with suppress(TypeError, ValueError, json.JSONDecodeError):
-                        result = replace(result, parsed=json.loads(result.output))
-            violations = step.output.validate(result) if step.output is not None else []
             if violations:
                 message = "; ".join(violations)
-                self.store.update_step(
-                    run_id,
-                    step.id,
-                    StepStatus.FAILED,
-                    output=result.output,
-                    error=message,
-                    retry_count=retry_count,
-                    duration_ms=result.duration_ms,
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
-                )
-                self.sink.on_error(run_id, step.id, message)
-                await self.hook.on_error(run_id, step, message)
+                await self._fail_step(step, run_id, result, message, retry_count)
                 raise _StepFailed(step.id, message)
 
             self.store.update_step(
@@ -566,6 +549,37 @@ class StepRunner:
         self.sink.on_error(run_id, step.id, message)
         await self.hook.on_error(run_id, step, message)
 
+    async def _fail_step(
+        self,
+        step: StepDefinition,
+        run_id: str,
+        result: AgentResult,
+        message: str,
+        retry_count: int,
+    ) -> None:
+        self.store.update_step(
+            run_id,
+            step.id,
+            StepStatus.FAILED,
+            output=result.output,
+            error=message,
+            retry_count=retry_count,
+            duration_ms=result.duration_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+        self.sink.on_error(run_id, step.id, message)
+        await self.hook.on_error(run_id, step, message)
+
+    @staticmethod
+    def _normalize_parsed(step: StepDefinition, result: AgentResult) -> AgentResult:
+        if step.output is not None and step.output.format == "json" and result.parsed is None:
+            if isinstance(result.output, (dict, list)):
+                return replace(result, parsed=result.output)
+            with suppress(TypeError, ValueError, json.JSONDecodeError):
+                return replace(result, parsed=json.loads(result.output))
+        return result
+
     def retry_step(self, run_id: str, step_id: str) -> FlowRun:
         run = self._require_run(run_id)
         flow = parse_flow(run.flow_yaml_snapshot)
@@ -608,6 +622,10 @@ class StepRunner:
     def _validate_resume_target(self, flow: FlowDefinition, run: FlowRun, step_id: str) -> None:
         if step_id not in run.steps:
             raise InvalidResumeError(f"step does not exist: {step_id}")
+        if run.steps[step_id].status == StepStatus.FAILED:
+            raise InvalidResumeError(
+                f"step {step_id} is failed; reset it with retry-step before resuming"
+            )
         incomplete = [
             dependency
             for dependency in FlowEngine().ancestors(flow)[step_id]
@@ -631,17 +649,18 @@ class StepRunner:
         provider = self.secret_provider
         missing: list[str] = []
         for key in flow.required_secrets:
-            try:
-                value = (
-                    provider.get(key)
-                    if provider is not None and hasattr(provider, "get")
-                    else provider(key)
-                    if provider is not None
-                    else None
-                )
-            except Exception:
-                value = None
+            value = self._resolve_secret(provider, key)
             if value is None or value == "":
                 missing.append(key)
         if missing:
             raise FlowExecutionError("required secrets are unavailable: " + ", ".join(missing))
+
+    @staticmethod
+    def _resolve_secret(provider: Any, key: str) -> Any:
+        if provider is None:
+            return None
+        getter = provider.get if hasattr(provider, "get") else provider
+        try:
+            return getter(key)
+        except Exception:
+            return None

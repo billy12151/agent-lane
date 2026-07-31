@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import os
 import shlex
+import signal
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -51,12 +53,13 @@ class ShellAgentAdapter(AgentAdapter):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(prompt.encode("utf-8")), timeout=timeout
             )
-        except TimeoutError:
+        except asyncio.TimeoutError:
             await self._terminate(process)
             return AgentResult.failure(
                 f"agent {agent} timed out after {timeout}s",
@@ -80,12 +83,33 @@ class ShellAgentAdapter(AgentAdapter):
         )
 
     @staticmethod
-    async def _terminate(process: asyncio.subprocess.Process) -> None:
+    def _process_group(process: asyncio.subprocess.Process) -> int | None:
+        """Resolve the child's process group, if it is still alive."""
+
+        try:
+            return os.getpgid(process.pid)
+        except (ProcessLookupError, PermissionError):
+            return None
+
+    @classmethod
+    async def _terminate(cls, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        process.terminate()
+        # The child started a new session (start_new_session=True), so it leads
+        # its own process group. Signal the whole group so grandchildren the
+        # agent spawned die with it instead of being orphaned.
+        pgid = cls._process_group(process)
+        if pgid is not None:
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
         try:
             await asyncio.wait_for(process.wait(), timeout=2)
-        except TimeoutError:
-            process.kill()
+        except asyncio.TimeoutError:
+            if pgid is not None:
+                with suppress(ProcessLookupError, PermissionError):
+                    os.killpg(pgid, signal.SIGKILL)
+            else:
+                process.kill()
             await process.wait()

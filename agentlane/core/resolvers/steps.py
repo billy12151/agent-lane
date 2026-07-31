@@ -12,6 +12,15 @@ def _read_path(value: Any, path: list[str]) -> tuple[bool, Any]:
     for segment in path:
         if isinstance(current, dict) and segment in current:
             current = current[segment]
+        elif isinstance(current, list):
+            try:
+                index = int(segment)
+            except ValueError:
+                return False, None
+            if 0 <= index < len(current):
+                current = current[index]
+            else:
+                return False, None
         else:
             return False, None
     return True, current
@@ -28,10 +37,8 @@ class StepsResolver(ContextResolver):
         parts = key.split(".")
         step_id = parts[0]
         actual_group = context.step_groups.get(step_id)
-        if step_id not in context.step_outputs:
-            return ResolveResult(
-                "", self._source(key), True, error=f"step has no output: {step_id}"
-            )
+        # Visibility is checked before existence so a resolver cannot probe
+        # whether a step in another group exists by telling "hidden" from "absent".
         if actual_group != self.group:
             expected = self.group or "global"
             return ResolveResult(
@@ -39,6 +46,10 @@ class StepsResolver(ContextResolver):
                 self._source(key),
                 True,
                 error=f"step {step_id} is not visible in {expected} namespace",
+            )
+        if step_id not in context.step_outputs:
+            return ResolveResult(
+                "", self._source(key), True, error=f"step has no output: {step_id}"
             )
         if parts[1:]:
             value_root = context.step_variables.get(step_id)
