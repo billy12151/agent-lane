@@ -47,8 +47,9 @@ class WorkerPool:
     the way a default asyncio executor can.
 
     The pool is an injectable object rather than hidden module state, so a host
-    can size/replace it and tests can isolate it. ``WorkerPool.default()`` returns
-    a process-wide lazily-created pool for callers that do not inject one.
+    can size/replace it and tests can isolate it. The module-level
+    ``default_pool()`` returns a process-wide lazily-created pool for callers
+    that do not inject one.
     """
 
     def __init__(
