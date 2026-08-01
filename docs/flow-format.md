@@ -70,6 +70,15 @@ option `id`。`goto_step` 要求 target 必须存在。一次跳转会重置 tar
 如果同一并行层里有多个关卡，允许多个暂停决策。但非暂停决策必须是该层里**唯一**的控制决策；冲突的
 跳转 / 终止决策会以可见的方式失败。
 
+### 被其他 agent / 宿主驱动时的关卡通知
+
+当 agentlane 不是由人在终端操作、而是被另一个 agent（如 OpenClaw、workbuddy）调用时，关卡处的终端
+提示用户看不到。此时用 `flow run --gate-notify`：遇到关卡就暂停退出，并写一个 JSON 通知文件到
+`~/.agentlane/logs/gate-<run_id>-<step_id>.json`，内容含 `run_id`、`step_id`、`message`、`options`
+（每个含 label/action/target）、以及一条 `resume_hint`。驱动方读这个文件，把决策抛给它自己的用户，
+拿到答案后用 `flow resume RUN_ID --gate-option STEP=LABEL` 把决策传回来即可。详见 README 的"关卡与
+恢复"章节。
+
 ## 引用（reference）
 
 引用用 `{prefix:key}` 语法，在调用 adapter 之前**并发**解析。

@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from ..result import AgentResult
-from ..state import FlowRun, GateDecision, StepDefinition
+from ..state import FlowRun, GateDecision, GateOption, StepDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,17 @@ class FlowHook:
         pass
 
     async def on_error(self, run_id: str, step: StepDefinition, error: str) -> None:
+        pass
+
+    async def on_gate_pending(
+        self, run_id: str, step: StepDefinition, options: list[GateOption]
+    ) -> None:
+        """Fired before a human gate pauses to wait for a decision.
+
+        Lets a host (an embedding runtime, or a driving agent) learn that a
+        decision is needed and what the choices are, so it can surface the
+        question to its own user and later resume the run with the answer.
+        """
         pass
 
     async def on_gate_decision(
@@ -50,6 +61,9 @@ class CompositeHook(FlowHook):
 
     async def on_error(self, *args: Any) -> None:
         await self._dispatch("on_error", *args)
+
+    async def on_gate_pending(self, *args: Any) -> None:
+        await self._dispatch("on_gate_pending", *args)
 
     async def on_gate_decision(self, *args: Any) -> None:
         await self._dispatch("on_gate_decision", *args)

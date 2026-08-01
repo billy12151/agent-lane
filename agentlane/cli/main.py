@@ -21,6 +21,7 @@ from ..config import AgentLaneConfig, load_config
 from ..core.adapters import ShellAgentAdapter
 from ..core.engine import FlowEngine, dump_flow, load_flow, parse_flow
 from ..core.errors import AgentLaneError, FlowValidationError
+from ..core.hooks import CompositeHook, FlowHook, GatePendingFileHook
 from ..core.human_gate import GateDriver, PauseGateDriver, PresetGateDriver
 from ..core.memory_client import build_memory_client
 from ..core.observability import CompositeSink, JsonlSink, SummarySink
@@ -98,13 +99,19 @@ def _runner(
     *,
     gate_choices: tuple[str, ...] = (),
     non_interactive: bool = False,
+    gate_notify: bool = False,
 ) -> tuple[StepRunner, SummarySink]:
     summary = SummarySink()
     log_sink = JsonlSink(config.logs_dir / "events.jsonl")
+    hooks: list[FlowHook] = []
     if gate_choices:
         gate_driver: GateDriver = PresetGateDriver(_choices(gate_choices))
-    elif non_interactive:
+    elif non_interactive or gate_notify:
+        # --gate-notify pauses at each gate (no terminal prompt to stall on) and
+        # writes a JSON notification the driving host can read to ask its user.
         gate_driver = PauseGateDriver()
+        if gate_notify:
+            hooks.append(GatePendingFileHook(config.logs_dir))
     else:
         gate_driver = InteractiveGateDriver()
     runner = StepRunner(
@@ -114,6 +121,7 @@ def _runner(
         memory_client=build_memory_client(config.memory_enabled),
         secret_provider=EnvSecretProvider(),
         gate_driver=gate_driver,
+        hook=CompositeHook(hooks) if hooks else None,
     )
     return runner, summary
 
@@ -232,6 +240,11 @@ def create_command(
 @click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--non-interactive", is_flag=True)
 @click.option("--gate-option", "gate_choices", multiple=True)
+@click.option(
+    "--gate-notify",
+    is_flag=True,
+    help="Pause at each human gate and write a JSON notification a driving host can read.",
+)
 @click.option("--ephemeral", is_flag=True, help="Delete terminal run state after output")
 @click.option("--output", "output_format", type=click.Choice(["text", "json"]), default="text")
 @click.pass_context
@@ -240,6 +253,7 @@ def run_command(
     path: Path,
     non_interactive: bool,
     gate_choices: tuple[str, ...],
+    gate_notify: bool,
     ephemeral: bool,
     output_format: str,
 ) -> None:
@@ -248,7 +262,11 @@ def run_command(
     _apply_flow_defaults(definition, config)
     store = _store(config)
     runner, summary = _runner(
-        config, store, gate_choices=gate_choices, non_interactive=non_interactive
+        config,
+        store,
+        gate_choices=gate_choices,
+        non_interactive=non_interactive,
+        gate_notify=gate_notify,
     )
     result = asyncio.run(runner.run(definition, original_yaml=path.read_text(encoding="utf-8")))
     _render_result(result, summary, output_format)
@@ -332,6 +350,11 @@ def prune_command(
 @click.option("--prompt")
 @click.option("--non-interactive", is_flag=True)
 @click.option("--gate-option", "gate_choices", multiple=True)
+@click.option(
+    "--gate-notify",
+    is_flag=True,
+    help="Pause at each subsequent human gate and write a JSON notification.",
+)
 @click.option("--output", "output_format", type=click.Choice(["text", "json"]), default="text")
 @click.pass_context
 def resume_command(
@@ -341,12 +364,17 @@ def resume_command(
     prompt: str | None,
     non_interactive: bool,
     gate_choices: tuple[str, ...],
+    gate_notify: bool,
     output_format: str,
 ) -> None:
     config = _config(ctx)
     store = _store(config)
     runner, summary = _runner(
-        config, store, gate_choices=gate_choices, non_interactive=non_interactive
+        config,
+        store,
+        gate_choices=gate_choices,
+        non_interactive=non_interactive,
+        gate_notify=gate_notify,
     )
     if edit_step:
         if prompt is None:

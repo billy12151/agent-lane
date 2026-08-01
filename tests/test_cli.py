@@ -142,6 +142,46 @@ steps:
     assert cancelled.exit_code == 0 and "cancelled" in cancelled.output
 
 
+def test_gate_notify_writes_notification_file_then_resumes(tmp_path, monkeypatch):
+    # --gate-notify is the host-integration path: agentlane pauses at the gate
+    # AND writes a JSON file a driving host reads to ask its user. After the
+    # host gets an answer it resumes with --gate-option, completing the loop.
+    home = tmp_path / "home"
+    monkeypatch.setenv("AGENTLANE_HOME", str(home))
+    write_config(home, [sys.executable, "-c", "print(sys.stdin.read())"])
+    path = tmp_path / "gate.yml"
+    write_flow(
+        path,
+        """name: notify-flow
+steps:
+  - id: approval
+    type: human_gate
+    message: Ship it?
+    options:
+      - {label: approve, action: next_step}
+      - {label: stop, action: terminate}
+""",
+    )
+    cli = CliRunner()
+    paused = cli.invoke(main, ["flow", "run", str(path), "--gate-notify"])
+    assert paused.exit_code == 0
+    assert "status=paused" in paused.output
+    run_id = run_id_from(paused.output)
+
+    notify = home / "logs" / f"gate-{run_id}-approval.json"
+    assert notify.exists(), "gate-notify must write the notification file"
+    import json
+
+    payload = json.loads(notify.read_text())
+    assert payload["step_id"] == "approval"
+    assert payload["message"] == "Ship it?"
+    assert {o["label"] for o in payload["options"]} == {"approve", "stop"}
+
+    # Host "asks its user", gets "approve", and resumes — the loop closes.
+    resumed = cli.invoke(main, ["flow", "resume", run_id, "--gate-option", "approval=approve"])
+    assert resumed.exit_code == 0 and "status=completed" in resumed.output
+
+
 def test_retry_step_command_recovers_failed_run(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("AGENTLANE_HOME", str(home))

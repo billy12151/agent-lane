@@ -59,6 +59,9 @@ class RecordingHook(FlowHook):
     async def on_gate_decision(self, run_id, step, decision):
         self.events.append(("gate", step.id, decision.action))
 
+    async def on_gate_pending(self, run_id, step, options):
+        self.events.append(("gate_pending", step.id, [o.label for o in options]))
+
 
 def test_runner_requires_explicit_adapter():
     with pytest.raises(ValueError, match="AgentAdapter"):
@@ -388,6 +391,70 @@ steps:
     assert run.status == FlowStatus.COMPLETED
     assert run.gate_decisions[0].label == "approve"
     assert ("gate", "gate", "next_step") in hook.events
+
+
+@pytest.mark.asyncio
+async def test_gate_pause_fires_on_gate_pending_with_options():
+    # When a gate pauses (PauseGateDriver returns None), the host must be
+    # notified via on_gate_pending so it can surface the question and later
+    # resume. Verify the hook receives the step and its option labels.
+    flow = parse_flow("""name: gate
+steps:
+  - id: approve
+    type: human_gate
+    message: Ship it?
+    options:
+      - {label: "yes", action: next_step}
+      - {label: "no", action: terminate}
+""")
+    hook = RecordingHook()
+    from agentlane.core.human_gate import PauseGateDriver
+
+    run = await StepRunner(
+        adapter=StaticAgentAdapter({}),
+        gate_driver=PauseGateDriver(),
+        hook=hook,
+    ).run(flow)
+    assert run.status == FlowStatus.PAUSED
+    assert ("gate_pending", "approve", ["yes", "no"]) in hook.events
+
+
+@pytest.mark.asyncio
+async def test_gate_pending_file_hook_writes_notification(tmp_path):
+    # The file-based side channel is what a driving host reads to learn a
+    # decision is needed. Verify it writes a parseable JSON with the resume hint.
+    import json
+
+    from agentlane.core.hooks import GatePendingFileHook
+
+    flow = parse_flow("""name: gate
+steps:
+  - id: approval
+    type: human_gate
+    message: Continue?
+    options:
+      - {label: approve, action: next_step}
+      - {label: revise, action: goto_step, target: approval}
+""")
+    hook = GatePendingFileHook(tmp_path)
+    from agentlane.core.human_gate import PauseGateDriver
+
+    runner = StepRunner(
+        adapter=StaticAgentAdapter({}),
+        gate_driver=PauseGateDriver(),
+        hook=hook,
+    )
+    run = await runner.run(flow)
+    assert run.status == FlowStatus.PAUSED
+    notify_file = tmp_path / f"gate-{run.run_id}-approval.json"
+    assert notify_file.exists()
+    payload = json.loads(notify_file.read_text())
+    assert payload["run_id"] == run.run_id
+    assert payload["step_id"] == "approval"
+    assert payload["message"] == "Continue?"
+    assert len(payload["options"]) == 2
+    assert payload["options"][0] == {"label": "approve", "action": "next_step", "target": ""}
+    assert "flow resume" in payload["resume_hint"]
 
 
 @pytest.mark.asyncio

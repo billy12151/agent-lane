@@ -433,6 +433,9 @@ class StepRunner:
             self.store.update_step(
                 run_id, step.id, StepStatus.WAITING_HUMAN, output=None, error=None
             )
+            # Notify hosts that a decision is pending so they can surface the
+            # question to their own user and resume the run with the answer.
+            await self.hook.on_gate_pending(run_id, step, step.options)
             return _Control("pause", step.id)
         if option not in step.options:
             message = f"gate driver returned an option not defined by step {step.id}"

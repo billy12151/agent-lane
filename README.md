@@ -180,6 +180,32 @@ agentlane flow run flow.yml --non-interactive
 agentlane flow resume RUN_ID --gate-option approval=approve
 ```
 
+### 让其他 agent / 宿主驱动关卡决策（`--gate-notify`）
+
+如果你是用 OpenClaw、workbuddy 这类 agent 在驱动 agentlane（而不是自己在终端前操作），关卡处的
+终端提示用户根本看不到。用 `--gate-notify`：agentlane 会在每个关卡处**暂停并写一个 JSON 通知文件**，
+你的驱动 agent 读这个文件就能知道"现在需要决策、选项是什么"，然后在它和你的对话里问你，拿到答案后
+再 `resume` 把决策传回来。
+
+```bash
+# 1. 驱动 agent 启动流程，遇到关卡会暂停退出（不卡死），并写通知文件
+cd /目标项目 && agentlane flow run review.yml --gate-notify
+# 输出: run_id=abc123 status=paused
+
+# 2. 通知文件在 ~/.agentlane/logs/gate-<run_id>-<step_id>.json，内容形如：
+# {
+#   "run_id": "abc123", "step_id": "approval", "message": "Ship it?",
+#   "options": [{"label":"approve","action":"next_step"}, {"label":"stop","action":"terminate"}],
+#   "resume_hint": "agentlane flow resume abc123 --gate-option approval=<label>"
+# }
+
+# 3. 驱动 agent 把这个决策抛给你，你选了 approve，它执行：
+agentlane flow resume abc123 --gate-option approval=approve
+```
+
+通知文件是简单的旁路状态：它把"暂停"（agentlane 内部）和"决策"（驱动 agent / 用户）解耦，驱动方
+既不需要注入回调函数，也不需要轮询运行状态——读一次文件就够了。
+
 恢复类命令都基于持久化的流程快照操作：
 
 ```bash
