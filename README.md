@@ -206,6 +206,9 @@ agentlane flow resume abc123 --gate-option approval=approve
 通知文件是简单的旁路状态：它把"暂停"（agentlane 内部）和"决策"（驱动 agent / 用户）解耦，驱动方
 既不需要注入回调函数，也不需要轮询运行状态——读一次文件就够了。
 
+> 完整的宿主集成（工作目录、超时、关卡通知、退出码、结构化输出）见
+> [宿主集成指南](docs/host-integration.md)。
+
 恢复类命令都基于持久化的流程快照操作：
 
 ```bash
