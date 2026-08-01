@@ -62,8 +62,7 @@ defaults:
   retry: 0
 ```
 
-**不处理的后果**：宿主超时杀进程，run 卡在 `running`，后续 `resume` 会报"run 已在执行"（run_lease 锁）。
-需要 `agentlane flow cancel RUN_ID` 清理后才能重跑。
+**不处理的后果**：宿主超时杀进程，run 停在 `running` 状态。不过进程被杀时执行锁（`run_lease` 的 flock）会随进程终止自动释放，所以 `resume` **可以直接续跑**——被中断的步骤会重新执行。只有当你想丢弃这个半成品 run 时才用 `agentlane flow cancel RUN_ID`（cancel 会把 run 置为 `cancelled`，之后不能再 resume）。
 
 ## 3. 人工关卡（human_gate）——让决策流回你的对话框
 
@@ -129,10 +128,10 @@ cd /项目 && agentlane flow run review.yml --non-interactive
 **建议处理。** 让宿主知道 flow 是成功还是失败。
 
 `flow run` 的退出码：
-- `0`：flow 完成（`completed`）或暂停（`paused`）——暂停不算失败，是正常退出
+- `0`：flow 完成（`completed`）、暂停（`paused`）或被关卡终止（`cancelled`）——都不算失败
 - `1`：flow 失败（`failed`）
 
-宿主 agent 可以据此决定下一步。但**退出码区分不了"完成"和"暂停"**——两者都是 0。要区分，看输出
+宿主 agent 可以据此决定下一步。但**退出码区分不了"完成"、"暂停"和"终止"**——三者都是 0。要区分，看输出
 文本里的 `status=`：
 
 ```bash

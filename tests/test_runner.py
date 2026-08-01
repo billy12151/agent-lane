@@ -458,6 +458,61 @@ steps:
 
 
 @pytest.mark.asyncio
+async def test_gate_pending_file_hook_removes_notification_after_decision(tmp_path):
+    # Lifecycle: a pause writes the notification, and the resume that supplies
+    # the decision must remove it so logs_dir does not grow one file per gate.
+    from agentlane.core.hooks import GatePendingFileHook
+    from agentlane.core.human_gate import PauseGateDriver, PresetGateDriver
+
+    flow = parse_flow("""name: gate
+steps:
+  - id: approval
+    type: human_gate
+    message: Continue?
+    options:
+      - {label: approve, action: next_step}
+""")
+    hook = GatePendingFileHook(tmp_path)
+    runner = StepRunner(
+        adapter=StaticAgentAdapter({}),
+        gate_driver=PauseGateDriver(),
+        hook=hook,
+    )
+    run = await runner.run(flow)
+    assert run.status == FlowStatus.PAUSED
+    notify_file = tmp_path / f"gate-{run.run_id}-approval.json"
+    assert notify_file.exists()
+
+    runner.gate_driver = PresetGateDriver({"approval": "approve"})
+    run = await runner.run(run_id=run.run_id)
+    assert run.status == FlowStatus.COMPLETED
+    assert not notify_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_preset_gate_does_not_write_notification(tmp_path):
+    # A preset answer resolves the gate without pausing, so on_gate_pending
+    # never fires and no notification file is ever written.
+    from agentlane.core.hooks import GatePendingFileHook
+    from agentlane.core.human_gate import PresetGateDriver
+
+    flow = parse_flow("""name: gate
+steps:
+  - id: approval
+    type: human_gate
+    options:
+      - {label: approve, action: next_step}
+""")
+    run = await StepRunner(
+        adapter=StaticAgentAdapter({}),
+        gate_driver=PresetGateDriver({"approval": "approve"}),
+        hook=GatePendingFileHook(tmp_path),
+    ).run(flow)
+    assert run.status == FlowStatus.COMPLETED
+    assert not (tmp_path / f"gate-{run.run_id}-approval.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_gate_terminate_cancels_flow():
     flow = parse_flow("""name: gate
 steps:
