@@ -1,18 +1,16 @@
 id: gemini-cli
 display_name: Gemini CLI
 category: coding
-description: Google Gemini command-line agent harness
-# `-p ""` selects non-interactive (headless) mode; the empty prompt string makes
-# Gemini read the actual prompt from stdin (agentlane feeds prompts via stdin).
-# `--yolo` auto-approves all tool calls so the agent can read/write files and run
-# commands autonomously. `--skip-trust` bypasses the interactive workspace-trust
-# prompt that would otherwise stall non-interactive runs in untrusted dirs.
-# This grants full, unsandboxed control over the workspace — only run flows
-# against directories you trust.
-# Flags verified via `gemini --help` (npm @google/gemini-cli, 2026-07-30).
-# Auth: requires GEMINI_API_KEY (or Vertex/GOOGLE_GENAI_USE_GCA) in the env.
+description: Google Gemini 命令行 agent harness
+# `-p ""` 选择非交互（headless）模式；空的 prompt 字符串让 gemini 从 stdin 读真正的 prompt
+# （agentlane 通过 stdin 喂 prompt）。
+# `--yolo` 自动批准所有工具调用，让 agent 能自主读写文件、跑命令。
+# `--skip-trust` 绕过交互式的工作区信任询问——不加的话非交互运行在未信任目录里会卡住。
+# 这等于让 agent 拥有对工作区的全部、不受沙箱限制的控制权——只对你信任的目录运行流程。
+# flags 已通过 `gemini --help` 实测验证（npm @google/gemini-cli，2026-07-30）。
+# 认证：环境里需要 GEMINI_API_KEY（或 Vertex / GOOGLE_GENAI_USE_GCA）。
 runtime:
   command: [gemini, --yolo, --skip-trust, -p, ""]
 detect:
-  install_hint: Install Gemini CLI (npm i -g @google/gemini-cli) and authenticate it before use.
+  install_hint: 先安装 Gemini CLI（npm i -g @google/gemini-cli）并完成认证。
 capabilities: [code_generation, documentation, test_generation]

@@ -1,12 +1,10 @@
 name: cross-review-trio
 version: 1
 description: |
-  Three-way cross review — the core "complementary viewpoints" pattern. One
-  harness drafts; two *different* harnesses independently review the same draft
-  in parallel; a third pass synthesizes where they agree, disagree, and what
-  both missed. The value is the divergence between independent viewpoints, not
-  speed: a single agent cannot find its own blind spots, so the two reviewers
-  must not see each other's output, only the shared draft.
+  三方交叉评审 —— 核心的"视角互补"模式。一个 agent 出初稿；两个*不同的* agent 并行
+  独立评审同一份初稿；第三步汇合它们的共识、分歧，以及两家都漏掉的盲区。价值在于独立
+  视角之间的分歧，而不是速度：单个 agent 永远发现不了自己的盲区，所以两个评审者绝不能
+  看到对方的输出，只能看到共享的初稿。
 defaults:
   timeout: 300
   retry: 1

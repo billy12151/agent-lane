@@ -1,6 +1,6 @@
 name: codegen-and-test
 version: 1
-description: Generate an implementation with one harness and review its tests with another.
+description: 用一个 harness 生成实现，再用另一个 harness 评审它的测试。
 defaults:
   timeout: 300
   retry: 1

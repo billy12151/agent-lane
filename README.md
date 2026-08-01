@@ -1,28 +1,36 @@
 # AgentLane
 
-AgentLane is a declarative workflow runner for coordinating autonomous CLI agents. A YAML file
-defines a dependency graph; AgentLane validates it, runs independent steps concurrently, resolves
-upstream context, enforces output contracts, pauses at human gates, and persists enough state to
-recover without silently changing the original flow.
+AgentLane 是一个声明式工作流引擎，用来编排多个自主 CLI agent（如 codex、claude-code、gemini-cli）。
+你用一个 YAML 文件定义任务依赖图，AgentLane 负责校验它、并行调度无依赖冲突的步骤、解析上游输出、
+强制执行输出契约、在人工关卡处暂停，并把运行状态持久化下来——这样崩溃或暂停后可以恢复，而不会
+悄悄改变原始流程的定义。
 
-> Status: `0.1.0a1` is an alpha release. The flow model and standalone execution path are usable;
-> compatibility can still change before `1.0`.
+> 状态：`0.1.0a1` 是 alpha（内测）版本。流程模型和独立运行路径已经可用；在 `1.0` 正式版之前，接口仍可能调整。
 
-## What is implemented
+## 核心价值：视角互补
 
-- Strict YAML flow validation with unknown-field, type, graph, reference, and cycle checks.
-- Real layer-level concurrency, configurable retries and timeouts, and optional fail-fast cleanup.
-- One adapter boundary for agent routing, with shell, static-test, and injected ACP adapters.
-- Step, environment, secret, and optional memory resolvers.
-- Text, Markdown, and structured JSON output contracts.
-- Human gates with `next_step`, bounded `goto_step`, and `terminate` decisions.
-- Atomic JSON run persistence, immutable flow snapshots, resume, retry, prompt edit, and pruning.
-- JSONL events, run summaries, duration/token metrics, hooks, and ASCII/Mermaid visualization.
-- Injected TaskFlow and ACP seams for an OpenClaw host integration.
+多 agent 协作真正的价值不在于"能力互补"（厂商自己会补齐），而在于**视角互补**：不同的 agent 对
+同一份产物给出不同视角的评审，能发现单个 agent 发现不了的盲区——哪怕它们背后是同一个模型。这是
+一个逻辑死结：一个 agent 永远没法用自己的视角发现自己的盲区。
 
-## Install from this repository
+AgentLane 内置的 `cross-review-trio` 模板就体现了这个思路：一个 agent 出初稿，**两个不同的 agent
+并行独立评审同一份初稿**（彼此看不到对方输出），第三步把它们汇合成"共识 / 分歧 / 盲区"三类结论。
 
-AgentLane requires Python 3.10 or newer.
+## 已实现的能力
+
+- 严格的 YAML 流程校验：未知字段、类型、依赖图、引用、环路都会被检查。
+- 真正的分层级并发、可配置的重试与超时、可选的 fail-fast 快速失败清理。
+- 统一的 agent 路由边界（adapter），内置 shell、静态测试、可注入的 ACP adapter。
+- 步骤输出引用、环境变量、secret、以及可选的 memory-arbiter 记忆解析器（resolver）。
+- 文本、Markdown、结构化 JSON 输出契约。
+- 人工关卡（human gate），支持 `next_step`、有上限的 `goto_step`、以及 `terminate` 决策。
+- 原子化的 JSON 运行持久化、不可变的流程快照、恢复（resume）、重试（retry）、改 prompt、清理历史。
+- JSONL 事件日志、运行摘要、耗时与 token 指标、生命周期 hooks、ASCII / Mermaid 可视化。
+- 为 OpenClaw 宿主集成预留的 TaskFlow 与 ACP 注入接缝（seam）。
+
+## 从本仓库安装
+
+AgentLane 要求 Python 3.10 或更高版本。
 
 ```bash
 python3 -m venv .venv
@@ -31,7 +39,7 @@ python -m pip install -e .
 agentlane --version
 ```
 
-For development and release checks:
+开发与发布检查：
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -40,19 +48,19 @@ mypy agentlane
 pytest --cov=agentlane
 ```
 
-## Quick start
+## 快速开始
 
-Create the user directories and a validated example flow:
+创建用户目录和一个已校验的示例流程：
 
 ```bash
 agentlane quickstart
 agentlane agent detect
 ```
 
-AgentLane includes specifications for `codex`, `claude-code`, and `gemini-cli`. Detection reports
-whether each executable is available; it does not install or authenticate third-party tools.
+AgentLane 自带 `codex`、`claude-code`、`gemini-cli` 三个 agent 的规格定义。`detect` 命令只会报告
+每个可执行文件是否可用，不会安装或认证第三方工具。
 
-Create or validate a flow:
+创建或校验一个流程：
 
 ```bash
 agentlane flow create --template cross-review --name my-review
@@ -60,12 +68,7 @@ agentlane flow validate ~/.agentlane/flows/my-review.agentlane.yml
 agentlane flow visualize ~/.agentlane/flows/my-review.agentlane.yml
 ```
 
-Built-in templates: `blank`, `cross-review` (extract → review), `cross-review-trio`
-(one harness drafts, **two different harnesses review the same draft in parallel**, a
-third pass synthesizes consensus / divergence / blind spots — the core "complementary
-viewpoints" pattern), and `codegen-test` (implement → review tests).
-
-Run it and inspect the durable record:
+运行它并查看持久化的运行记录：
 
 ```bash
 agentlane flow run ~/.agentlane/flows/my-review.agentlane.yml
@@ -73,7 +76,26 @@ agentlane flow list
 agentlane flow status
 ```
 
-## Flow example
+内置模板：`blank`（空白）、`cross-review`（抽取 → 评审）、`cross-review-trio`（一个 agent 出初稿，
+**两个不同 agent 并行独立评审同一份初稿**，第三步汇合共识 / 分歧 / 盲区——这是核心的"视角互补"模式）、
+`codegen-test`（实现 → 评审测试）。
+
+## 自主执行 flags（重要）
+
+内置 agent 规格自带了每个 harness 在非交互流程里真正可用所需的自主执行 flags：
+
+| harness | flags | 作用 |
+| --- | --- | --- |
+| `codex` | `--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check` | 跳过审批询问；允许在 git 仓库外运行；prompt 从 stdin 读入（`-`） |
+| `claude-code` | `--dangerously-skip-permissions` | 绕过逐工具审批，让 agent 能自主读文件 / 跑 Bash |
+| `gemini-cli` | `--yolo --skip-trust -p ""` | 自动批准所有工具调用；跳过工作区信任询问；从 stdin 读 prompt |
+
+**不加这些 flags，agent 只能对 prompt 字面文字做反应，读不了你的文件、跑不了命令**——这会让流程退化
+成普通的 prompt 路由。**这些 flags 等于让 agent 拥有对工作区的全部、不受沙箱限制的控制权。** 请只对你
+信任的目录运行流程，绝不要把不受信任的内容直接塞进流程 prompt。如果你装的 CLI 版本不认某个 flag，可以在
+`~/.agentlane/config.yml` 里覆盖该命令（参考 `examples/config.example.yml`）。
+
+## 流程示例
 
 ```yaml
 name: implementation-review
@@ -127,18 +149,16 @@ steps:
     depends_on: [approval]
 ```
 
-`architecture-review` and `risk-review` run concurrently because they are in the same dependency
-layer. A step may only reference completed upstream dependencies. Structured field access such as
-`{steps:draft.plan}` requires a JSON output contract.
+`architecture-review` 和 `risk-review` 会并发执行，因为它们位于同一个依赖层。一个步骤只能引用已完成
+的上游依赖。结构化字段访问（如 `{steps:draft.plan}`）要求上游是 JSON 输出契约。
 
-The complete format and resolver rules are in [the flow reference](docs/flow-format.md). A JSON
-Schema is packaged at `agentlane/schema/flow-schema.json` for editor integration.
+完整的格式与解析器规则见 [流程格式参考](docs/flow-format.md)。打包的 JSON Schema 在
+`agentlane/schema/flow-schema.json`，可用于编辑器自动补全。
 
-## Agent configuration
+## Agent 配置
 
-The default configuration file is `~/.agentlane/config.yml`; set `AGENTLANE_HOME` to relocate all
-default AgentLane data or pass `--config PATH` for one command. A full example is available at
-[`examples/config.example.yml`](examples/config.example.yml).
+默认配置文件是 `~/.agentlane/config.yml`；设置 `AGENTLANE_HOME` 可以迁移所有默认数据目录，或用
+`--config PATH` 指定某次命令的配置。完整示例见 [`examples/config.example.yml`](examples/config.example.yml)。
 
 ```yaml
 agents:
@@ -147,39 +167,20 @@ agents:
     local-reviewer: [python, /absolute/path/reviewer.py]
 ```
 
-Prompts are sent to the configured process on standard input. Commands use direct process
-execution, not a shell; shell expansion and pipelines are therefore not implicit. User agent specs
-can also be placed in `~/.agentlane/agents/*.agent.yml` and override built-in IDs.
+Prompt 通过 stdin 发给配置好的进程。命令使用直接进程执行，不走 shell，因此 shell 展开和管道不是隐式的。
+用户自定义的 agent 规格也可以放在 `~/.agentlane/agents/*.agent.yml`，会覆盖同名的内置 ID。
 
-### Autonomous execution flags
+## 关卡与恢复
 
-The built-in agent specs ship with the autonomous-execution flags each harness needs to be useful
-inside a non-interactive flow:
-
-| harness | flags | why |
-| --- | --- | --- |
-| `codex` | `--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check` | skip approval prompts; allow running outside a git repo; prompt via stdin (`-`) |
-| `claude-code` | `--dangerously-skip-permissions` | bypass per-tool approval so the agent can read files / run Bash autonomously |
-| `gemini-cli` | `--yolo --skip-trust -p ""` | auto-approve all tool calls; skip the workspace-trust prompt; read prompt from stdin |
-
-Without these flags the agent can only react to the literal prompt text — it cannot read your files
-or run commands on its own, which collapses the flow into plain prompt routing. **These flags grant
-the agent full, unsandboxed control over the workspace.** Only run flows against directories you
-trust, and never pass untrusted input directly into a flow prompt. If a flag is rejected by your
-installed CLI version, override the command in `~/.agentlane/config.yml` (see
-`examples/config.example.yml`).
-
-## Gates and recovery
-
-Interactive execution prompts at a human gate. In automation, `--non-interactive` persists the run
-as `paused` instead of guessing a choice:
+交互式执行时，遇到人工关卡会提示你做选择。在自动化场景下，`--non-interactive` 会把运行状态保存为
+`paused`（暂停），而不是瞎猜一个选项：
 
 ```bash
 agentlane flow run flow.yml --non-interactive
 agentlane flow resume RUN_ID --gate-option approval=approve
 ```
 
-Recovery commands operate on the persisted flow snapshot:
+恢复类命令都基于持久化的流程快照操作：
 
 ```bash
 agentlane flow retry-step RUN_ID STEP_ID
@@ -189,27 +190,24 @@ agentlane flow log RUN_ID
 agentlane flow delete RUN_ID --yes
 ```
 
-Retrying or editing a step resets that step and all of its descendants, while preserving completed
-upstream evidence. `goto_step` can intentionally revisit work, but `max_visits` bounds every step
-and gate so a flow cannot loop forever. `terminate` records an operator decision and ends the run as
-`cancelled`.
+重试或编辑某个步骤时，会重置该步骤及其所有下游步骤，同时保留已完成的上游证据。`goto_step` 可以
+故意重做某段工作，但 `max_visits` 会给每个步骤和关卡设上限，让流程不会无限循环。`terminate` 会记录
+一个操作者决策并把运行状态置为 `cancelled`。
 
-By default, state is stored in `~/.agentlane/runs.json` using an inter-process lock and atomic file
-replacement. Event logs are appended to `~/.agentlane/logs/events.jsonl`. Agent output is durable
-data and may contain sensitive information; protect those files accordingly.
+默认情况下，状态保存在 `~/.agentlane/runs.json`，使用进程间锁和原子文件替换。事件日志追加到
+`~/.agentlane/logs/events.jsonl`。Agent 的输出是持久化数据，可能含敏感信息，请妥善保护这些文件。
 
-## Resolver behavior
+## 解析器（resolver）行为
 
-- `{steps:step-id}` reads a completed, ungrouped upstream output.
-- `{steps:step-id.field}` reads a field from an upstream JSON result.
-- `{group.steps:step-id}` is required for a step assigned to `group: group`.
-- `{env:NAME}` reads an environment variable. Missing values become empty text and emit an event.
-- `{secret:NAME}` reads the configured secret provider. Missing secrets fail the step closed.
-- `{memory:query}`, `{memory:ID}`, and `{memory:get:step-id}` use an explicitly enabled
-  memory-arbiter client. Missing memory is observable but non-fatal.
+- `{steps:step-id}` 读取一个已完成的、未分组的上游步骤输出。
+- `{steps:step-id.field}` 读取上游 JSON 结果里的某个字段。
+- `{group.steps:step-id}` 用于声明了 `group: group` 的步骤。
+- `{env:NAME}` 读取环境变量。缺失时变成空文本并发一个事件。
+- `{secret:NAME}` 读取配置好的 secret provider。缺失会让该步骤直接失败（fail-closed）。
+- `{memory:query}`、`{memory:ID}`、`{memory:get:step-id}` 使用显式启用的 memory-arbiter 客户端。缺失是可观测的，但不致命。
 
-`memory.workspace` is metadata forwarded to memory-arbiter; with memory-arbiter `0.7.4+` it is not
-a search isolation boundary. Do not use it as an authorization or tenancy control.
+`memory.workspace` 是转发给 memory-arbiter 的元数据；在 memory-arbiter `0.7.4+` 版本里它**不是**
+搜索隔离边界。不要把它当作授权或租户控制手段。
 
 ## Python API
 
@@ -232,17 +230,16 @@ run = asyncio.run(runner.run(flow))
 assert run.steps["draft"].output == "done"
 ```
 
-Production hosts inject an `AgentAdapter`, `StateStore`, resolver registry, gate driver, and optional
-hooks/sinks. AgentLane deliberately has no global adapter registry: routing ownership stays in the
-single adapter selected by the host. See [the architecture notes](docs/architecture.md).
+生产环境的宿主会注入自己的 `AgentAdapter`、`StateStore`、resolver registry、gate driver，以及可选的
+hooks/sinks。AgentLane **故意没有**全局 adapter 注册表：路由的归属始终在宿主选定的那一个 adapter 上。
+详见 [架构说明](docs/architecture.md)。
 
-## Explicit alpha boundaries
+## 明确的 alpha 边界
 
-The current release does not include a remote template marketplace, a full-screen monitoring UI,
-or a standalone generic ACP daemon. `ACPAgentAdapter` and `TaskFlowStateStore` are dependency-
-injection seams for an owning runtime such as OpenClaw. The built-in cross-review flow uses
-standalone-capable harnesses; `zcode` is not advertised as one.
+当前版本**不包含**：远程模板市场、全屏监控 UI、独立的通用 ACP daemon。`ACPAgentAdapter` 和
+`TaskFlowStateStore` 是为 OpenClaw 这类宿主运行时准备的**依赖注入接缝**。内置的 cross-review 流程
+用的是支持独立运行的 harness；`zcode` 不在支持列表里。
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. 见 [LICENSE](LICENSE)。
