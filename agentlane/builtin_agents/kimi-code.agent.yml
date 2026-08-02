@@ -1,0 +1,21 @@
+id: kimi-code
+display_name: Kimi Code
+category: coding
+description: Moonshot AI 自主编码 harness
+# kimi 0.31.1 的 `-p/--prompt` 只接受字面 prompt 值，不会从 stdin 读：
+# `-p ""` 报 "Prompt cannot be empty"，`-p -` 把 `-` 当字面 prompt（实测 kimi
+# 回复"你发了一个短横线"），不带 -p 直接管道 stdin 会进交互式 TUI。
+# 所以包一层 sh：`$(cat)` 把 stdin（agentlane 喂 prompt 的通道）读成 -p 的实参，
+# `exec` 让 kimi 替换 sh 进程，信号/退出码语义保持不变。命令替换的结果不会被
+# 二次展开，prompt 里的引号/反引号/`$()` 都是安全的。
+# `--yolo` / `--auto` 与 `--prompt` 互斥（实测报 "Cannot combine --prompt with ..."），
+# headless 下的工具审批由 kimi 自身权限策略处理（config.toml 的 permission 段）。
+# flags 已对照 `kimi --help` 并实测运行验证（kimi-code 0.31.1，2026-08-02）。
+# 认证：先 `kimi login`（设备码流程），或在 config.toml 配置 provider + default_model。
+runtime:
+  command: [sh, -c, 'exec kimi -p "$(cat)"']
+detect:
+  # argv[0] 是 sh 而不是 kimi——detect 必须查 kimi 本体。
+  executable: kimi
+  install_hint: 先安装 Kimi Code 并运行 kimi login 完成认证（或在 config.toml 配置 provider）。
+capabilities: [code_generation, code_review, refactoring]

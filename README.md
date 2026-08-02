@@ -57,7 +57,7 @@ agentlane quickstart
 agentlane agent detect
 ```
 
-AgentLane 自带 `codex`、`claude-code`、`gemini-cli` 三个 agent 的规格定义。`detect` 命令只会报告
+AgentLane 自带 `codex`、`claude-code`、`gemini-cli`、`kimi-code` 四个 agent 的规格定义。`detect` 命令只会报告
 每个可执行文件是否可用，不会安装或认证第三方工具。
 
 创建或校验一个流程：
@@ -89,6 +89,7 @@ agentlane flow status
 | `codex` | `--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check` | 跳过审批询问；允许在 git 仓库外运行；prompt 从 stdin 读入（`-`） |
 | `claude-code` | `--dangerously-skip-permissions` | 绕过逐工具审批，让 agent 能自主读文件 / 跑 Bash |
 | `gemini-cli` | `--yolo --skip-trust -p ""` | 自动批准所有工具调用；跳过工作区信任询问；从 stdin 读 prompt |
+| `kimi-code` | `sh -c 'exec kimi -p "$(cat)"'` | kimi 0.31.1 的 `-p` 只收字面 prompt、不读 stdin，故包一层 sh 把 stdin 转发为 `-p` 实参；`--yolo`/`--auto` 与 `-p` 互斥，headless 工具审批由 kimi 自身权限策略处理 |
 
 **不加这些 flags，agent 只能对 prompt 字面文字做反应，读不了你的文件、跑不了命令**——这会让流程退化
 成普通的 prompt 路由。**这些 flags 等于让 agent 拥有对工作区的全部、不受沙箱限制的控制权。** 请只对你
@@ -133,10 +134,19 @@ steps:
     output:
       format: markdown
 
+  - id: security-review
+    agent: kimi-code
+    prompt: |
+      Review this plan for security risks:
+      {steps:draft.plan}
+    depends_on: [draft]
+    output:
+      format: markdown
+
   - id: approval
     type: human_gate
-    message: Continue after both independent reviews?
-    depends_on: [architecture-review, risk-review]
+    message: Continue after all independent reviews?
+    depends_on: [architecture-review, risk-review, security-review]
     options:
       - label: approve
         action: next_step
@@ -149,7 +159,7 @@ steps:
     depends_on: [approval]
 ```
 
-`architecture-review` 和 `risk-review` 会并发执行，因为它们位于同一个依赖层。一个步骤只能引用已完成
+`architecture-review`、`risk-review` 和 `security-review` 会并发执行，因为它们位于同一个依赖层。一个步骤只能引用已完成
 的上游依赖。结构化字段访问（如 `{steps:draft.plan}`）要求上游是 JSON 输出契约。
 
 完整的格式与解析器规则见 [流程格式参考](docs/flow-format.md)。打包的 JSON Schema 在
@@ -164,6 +174,7 @@ steps:
 agents:
   commands:
     codex: [codex, exec, -]
+    kimi-code: [sh, -c, 'exec kimi -p "$(cat)"']
     local-reviewer: [python, /absolute/path/reviewer.py]
 ```
 

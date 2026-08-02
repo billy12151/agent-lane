@@ -1,6 +1,6 @@
 """AgentLane public API."""
 
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 from .core.engine import FlowEngine, load_flow, parse_flow, run_flow
 from .core.errors import AgentLaneError, FlowValidationError, InvalidResumeError

@@ -11,7 +11,7 @@ def test_builtin_agent_specs_are_loadable(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTLANE_HOME", str(tmp_path))
     config = load_config()
     specs = load_agent_specs(config)
-    assert {"codex", "claude-code", "gemini-cli"} <= set(specs)
+    assert {"codex", "claude-code", "gemini-cli", "kimi-code"} <= set(specs)
     assert specs["codex"].executable == "codex"
     assert "code_review" in specs["codex"].capabilities
     # Autonomous-execution flags are load-bearing: without them the agent can
@@ -71,6 +71,7 @@ def test_agent_installed_uses_executable_lookup(tmp_path, monkeypatch):
         {"description": ["not", "text"]},
         {"capabilities": {}},
         {"detect": []},
+        {"detect": {"executable": 123}},
         {"runtime": {"command": ["broken"], "shell": True}},
     ],
 )
@@ -125,3 +126,45 @@ def test_builtin_gemini_spec_reads_prompt_from_stdin(tmp_path, monkeypatch):
     assert spec.command[p_index + 1] == ""
     # autonomous-execution flag must be present or the agent cannot act
     assert "--yolo" in spec.command
+
+
+def test_builtin_kimi_spec_wraps_stdin_into_prompt_arg(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTLANE_HOME", str(tmp_path))
+    spec = load_agent_specs(load_config())["kimi-code"]
+    # kimi 0.31.1's `-p` only takes a literal prompt value and never reads
+    # stdin: `-p ""` errors ("Prompt cannot be empty") and `-p -` passes a
+    # literal dash. The spec therefore wraps kimi in `sh -c` and forwards the
+    # stdin prompt into the -p argument via cat. Guard the wrapper shape.
+    assert spec.command[:2] == ["sh", "-c"]
+    assert 'kimi -p "$(cat)"' in spec.command[2]
+    # argv[0] is sh, so detection must go through detect.executable — otherwise
+    # `agent detect` would report sh (always present) instead of kimi.
+    assert spec.executable == "kimi"
+    # `--yolo`/`--auto` are rejected in combination with `--prompt`; adding them
+    # would break every run, so they must stay out of the spec.
+    assert "--yolo" not in spec.command
+    assert "--auto" not in spec.command
+
+
+def test_detect_executable_overrides_argv0_lookup(tmp_path, monkeypatch):
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    monkeypatch.setenv("AGENTLANE_HOME", str(tmp_path))
+    agents_dir.joinpath("wrapped.agent.yml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "wrapped",
+                "display_name": "Wrapped",
+                "runtime": {"command": ["sh", "-c", "exec realbin"]},
+                "detect": {"executable": "realbin"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = load_agent_specs(load_config())["wrapped"]
+    assert spec.executable == "realbin"
+    monkeypatch.setattr(
+        "agentlane.agents.shutil.which",
+        lambda exe: "/bin/realbin" if exe == "realbin" else None,
+    )
+    assert spec.installed

@@ -476,9 +476,17 @@ def agent_detect(ctx: click.Context) -> None:
     config = _config(ctx)
     specs = load_agent_specs(config)
     for name, command in sorted(agent_commands(config).items()):
-        parts = shlex.split(command) if isinstance(command, str) else command
-        location = shutil.which(parts[0]) if parts else None
-        hint = specs[name].install_hint if name in specs and not location else ""
+        spec = specs.get(name)
+        if spec is not None and command == spec.command:
+            # AgentSpec.executable honors detect.executable, so wrapped harnesses
+            # (argv[0] = sh) report the real binary instead of the wrapper. An
+            # inline command override falls back to argv[0] of what will run.
+            executable = spec.executable
+        else:
+            parts = shlex.split(command) if isinstance(command, str) else command
+            executable = parts[0] if parts else ""
+        location = shutil.which(executable) if executable else None
+        hint = spec.install_hint if spec is not None and not location else ""
         suffix = f" | {hint}" if hint else ""
         click.echo(f"{name}: {location or 'not found'}{suffix}")
 

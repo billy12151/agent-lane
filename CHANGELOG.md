@@ -5,8 +5,20 @@ the project uses semantic versioning once the public API stabilizes.
 
 ## [Unreleased]
 
+## [0.1.0a2] - 2026-08-02
+
 ### Added
 
+- Built-in `kimi-code` agent spec (Moonshot AI's Kimi Code CLI). kimi 0.31.1's `-p` only
+  accepts a literal prompt value and never reads stdin (`-p ""` errors out, `-p -` passes a
+  literal dash, bare `kimi` with piped stdin enters the TUI), so the spec wraps the harness as
+  `sh -c 'exec kimi -p "$(cat)"'` to forward the stdin prompt into the `-p` argument.
+  `--yolo`/`--auto` are mutually exclusive with `--prompt`, so headless tool approval is
+  governed by kimi's own permission policy. Agent specs gained an optional
+  `detect.executable` field and `agent detect` now consults spec metadata, so wrapped
+  harnesses report the real binary instead of the wrapper's argv[0] (`sh`); inline
+  command overrides still fall back to argv[0]. Verified against kimi-code 0.31.1
+  end-to-end (login, headless tool use, real flow run).
 - Built-in `cross-review-trio` flow template: one harness drafts, two *different* harnesses review
   the same draft in parallel without seeing each other, and a third pass synthesizes consensus,
   divergence, and blind spots — the core "complementary viewpoints" pattern.

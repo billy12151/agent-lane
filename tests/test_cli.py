@@ -43,7 +43,7 @@ def run_id_from(output):
 def test_cli_version():
     result = CliRunner().invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0a1" in result.output
+    assert "0.1.0a2" in result.output
 
 
 def test_flow_validate_and_visualize_file(tmp_path):
@@ -209,6 +209,24 @@ def test_delete_requires_confirmation(tmp_path, monkeypatch):
     write_config(home)
     result = CliRunner().invoke(main, ["flow", "delete", "x"])
     assert result.exit_code != 0 and "--yes" in result.output
+
+
+def test_agent_detect_uses_spec_detect_executable(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setenv("AGENTLANE_HOME", str(home))
+    write_config(home)
+    looked_up = []
+    # Patch the shutil module directly: "agentlane.cli.main.shutil.which" in
+    # string form is unresolvable because agentlane.cli.__init__ shadows the
+    # "main" submodule attribute with the click group function.
+    monkeypatch.setattr("shutil.which", lambda exe: looked_up.append(exe) or "/bin/fake")
+    result = CliRunner().invoke(main, ["agent", "detect"])
+    assert result.exit_code == 0
+    # kimi-code's argv[0] is sh (stdin-forwarding wrapper); detect must look up
+    # the real harness binary declared via detect.executable instead.
+    assert "kimi" in looked_up
+    kimi_line = next(line for line in result.output.splitlines() if line.startswith("kimi-code:"))
+    assert "/bin/fake" in kimi_line
 
 
 def test_auxiliary_commands(tmp_path, monkeypatch):

@@ -26,9 +26,15 @@ class AgentSpec:
     install_hint: str = ""
     capabilities: tuple[str, ...] = field(default_factory=tuple)
     source: str = ""
+    detect_executable: str = ""
 
     @property
     def executable(self) -> str:
+        # detect.executable overrides the lookup when argv[0] is not the harness
+        # itself — e.g. a spec whose command wraps the harness in `sh -c` to
+        # forward stdin would otherwise report "sh" as installed/missing.
+        if self.detect_executable:
+            return self.detect_executable
         parts = shlex.split(self.command) if isinstance(self.command, str) else self.command
         return parts[0]
 
@@ -95,7 +101,7 @@ def _parse_spec(path: Path) -> AgentSpec:
         detect = {}
     if not isinstance(detect, dict):
         raise FlowValidationError(f"agent spec detect must be a mapping: {path}")
-    detect_unknown = sorted(str(key) for key in detect if key != "install_hint")
+    detect_unknown = sorted(str(key) for key in detect if key not in {"install_hint", "executable"})
     if detect_unknown:
         raise FlowValidationError(
             f"agent spec detect has unknown fields {', '.join(detect_unknown)}: {path}"
@@ -103,6 +109,9 @@ def _parse_spec(path: Path) -> AgentSpec:
     install_hint = detect.get("install_hint", "")
     if not isinstance(install_hint, str):
         raise FlowValidationError(f"agent spec install_hint must be a string: {path}")
+    detect_executable = detect.get("executable", "")
+    if not isinstance(detect_executable, str):
+        raise FlowValidationError(f"agent spec detect executable must be a string: {path}")
     description = value.get("description", "")
     if not isinstance(description, str):
         raise FlowValidationError(f"agent spec description must be a string: {path}")
@@ -118,6 +127,7 @@ def _parse_spec(path: Path) -> AgentSpec:
         install_hint=install_hint,
         capabilities=tuple(capabilities),
         source=str(path),
+        detect_executable=detect_executable,
     )
 
 

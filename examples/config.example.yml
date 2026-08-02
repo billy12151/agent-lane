@@ -19,6 +19,10 @@ agents:
     codex: [codex, exec, --dangerously-bypass-approvals-and-sandbox, --skip-git-repo-check, -]
     claude-code: [claude, -p, --dangerously-skip-permissions]
     gemini-cli: [gemini, --yolo, --skip-trust, -p, ""]
+    # kimi 0.31.1 的 `-p` 只收字面 prompt、不读 stdin（`-p -` 会把 `-` 当字面
+    # prompt），所以包一层 sh 把 stdin 转发为 `-p` 实参。`--yolo`/`--auto` 与
+    # `-p` 互斥，headless 工具审批由 kimi 自身权限策略处理。实测于 2026-08-02。
+    kimi-code: [sh, -c, 'exec kimi -p "$(cat)"']
 
 memory:
   enabled: false
